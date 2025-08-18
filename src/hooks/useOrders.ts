@@ -1,19 +1,32 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { Order, OrderStatus, ChatMessage } from '../types/order';
+import { usePDVCashRegister } from './usePDVCashRegister';
 
 export const useOrders = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { currentRegister, isOpen: isCashRegisterOpen } = usePDVCashRegister();
 
   const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
       console.log('🔄 Buscando pedidos...');
+      
+      // If no cash register is open, return empty array
+      if (!currentRegister) {
+        console.log('⚠️ Nenhum caixa aberto, não exibindo pedidos');
+        setOrders([]);
+        setLoading(false);
+        return;
+      }
+      
+      // Only fetch orders linked to the current cash register
       const { data, error } = await supabase
         .from('orders')
         .select('*')
+        .eq('cash_register_id', currentRegister.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -24,15 +37,21 @@ export const useOrders = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentRegister]);
 
   const createOrder = useCallback(async (orderData: Omit<Order, 'id' | 'created_at' | 'updated_at'>) => {
     try {
+      // Check if a cash register is open
+      if (!currentRegister) {
+        throw new Error('Não é possível criar pedidos sem um caixa aberto');
+      }
+      
       // Set channel to delivery if not specified
       // For manual orders, keep the channel as 'manual'
       const orderWithChannel = orderData.channel === 'manual' ? orderData : {
         ...orderData,
-        channel: orderData.channel || 'delivery'
+        channel: orderData.channel || 'delivery',
+        cash_register_id: currentRegister.id // Associate with current cash register
       };
       
       const { data, error } = await supabase
@@ -68,7 +87,7 @@ export const useOrders = () => {
     } catch (err) {
       throw new Error(err instanceof Error ? err.message : 'Erro ao criar pedido');
     }
-  }, []);
+  }, [currentRegister]);
 
   const updateOrderStatus = useCallback(async (orderId: string, status: OrderStatus) => {
     try {
@@ -195,38 +214,56 @@ export const useOrders = () => {
   useEffect(() => {
     fetchOrders();
 
-    // Configurar realtime para pedidos
-    const ordersChannel = supabase
-      .channel('orders')
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'orders' },
-        (payload) => {
-          console.log('🔔 Novo pedido recebido via realtime:', payload);
-          setOrders(prev => [payload.new as Order, ...prev]);
-          // Tocar som de notificação
-          playNotificationSound();
-        }
-      )
-      .on('postgres_changes', 
-        { event: 'UPDATE', schema: 'public', table: 'orders' },
-        (payload) => {
-          console.log('🔄 Pedido atualizado via realtime:', payload);
-          setOrders(prev => prev.map(order => 
-            order.id === payload.new.id ? payload.new as Order : order
-          ));
-        }
-      )
-      .subscribe((status) => console.log('🔌 Status da inscrição de pedidos:', status));
+    // Only set up realtime if there's an open cash register
+    let ordersChannel: any = null;
+    
+    if (currentRegister) {
+      // Configurar realtime para pedidos do caixa atual
+      ordersChannel = supabase
+        .channel('orders')
+        .on('postgres_changes',
+          { 
+            event: 'INSERT', 
+            schema: 'public', 
+            table: 'orders',
+            filter: `cash_register_id=eq.${currentRegister.id}`
+          },
+          (payload) => {
+            console.log('🔔 Novo pedido recebido via realtime:', payload);
+            setOrders(prev => [payload.new as Order, ...prev]);
+            // Tocar som de notificação
+            playNotificationSound();
+          }
+        )
+        .on('postgres_changes', 
+          { 
+            event: 'UPDATE', 
+            schema: 'public', 
+            table: 'orders',
+            filter: `cash_register_id=eq.${currentRegister.id}`
+          },
+          (payload) => {
+            console.log('🔄 Pedido atualizado via realtime:', payload);
+            setOrders(prev => prev.map(order => 
+              order.id === payload.new.id ? payload.new as Order : order
+            ));
+          }
+        )
+        .subscribe((status) => console.log('🔌 Status da inscrição de pedidos:', status));
+    }
 
     return () => {
-      supabase.removeChannel(ordersChannel);
+      if (ordersChannel) {
+        supabase.removeChannel(ordersChannel);
+      }
     };
-  }, [fetchOrders]);
+  }, [fetchOrders, currentRegister]);
 
   return {
     orders,
     loading,
     error,
+    isCashRegisterOpen,
     createOrder,
     updateOrderStatus,
     refetch: fetchOrders
@@ -242,18 +279,52 @@ export const useOrderChat = (orderId: string) => {
     try {
       setLoading(true);
       console.log('🔄 Buscando mensagens para o pedido:', orderId);
-      const { data, error } = await supabase
+      
+      // Check if Supabase is properly configured
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      
+      if (!supabaseUrl || !supabaseKey || 
+          supabaseUrl === 'your_supabase_url_here' || 
+          supabaseKey === 'your_supabase_anon_key_here' ||
+          supabaseUrl.includes('placeholder')) {
+        console.warn('⚠️ Supabase não configurado - chat não disponível');
+        setMessages([]);
+        setLoading(false);
+        return;
+      }
+
+      // Add timeout to prevent hanging requests
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout: Conexão com Supabase demorou mais de 10 segundos')), 10000);
+      });
+      
+      const fetchPromise = supabase
         .from('chat_messages')
         .select('*')
         .eq('order_id', orderId)
         .order('created_at', { ascending: true });
+      
+      const { data, error } = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (error) throw error;
       setMessages(data || []);
       console.log('✅ Mensagens carregadas:', data?.length || 0);
       setLastFetch(new Date());
     } catch (err) {
-      console.error('Erro ao carregar mensagens:', err);
+      console.error('❌ Erro ao carregar mensagens:', err);
+      
+      // Handle different types of errors gracefully
+      if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
+        console.warn('🌐 Erro de conectividade - modo offline para chat');
+        setMessages([]);
+      } else if (err instanceof Error && err.message.includes('Timeout')) {
+        console.warn('⏱️ Timeout na conexão - chat indisponível');
+        setMessages([]);
+      } else {
+        console.error('💥 Erro inesperado no chat:', err);
+        setMessages([]);
+      }
     } finally {
       setLoading(false);
       setLastFetch(new Date());
@@ -264,13 +335,36 @@ export const useOrderChat = (orderId: string) => {
   const refreshMessages = useCallback(async () => {
     try {
       console.log('🔄 Recarregando mensagens para o pedido:', orderId);
-      const { data, error } = await supabase
+      
+      // Check if Supabase is properly configured
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      
+      if (!supabaseUrl || !supabaseKey || 
+          supabaseUrl === 'your_supabase_url_here' || 
+          supabaseKey === 'your_supabase_anon_key_here' ||
+          supabaseUrl.includes('placeholder')) {
+        console.warn('⚠️ Supabase não configurado - chat não disponível');
+        return;
+      }
+
+      // Add timeout for refresh as well
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout na atualização')), 8000);
+      });
+      
+      const fetchPromise = supabase
         .from('chat_messages')
         .select('*')
         .eq('order_id', orderId)
         .order('created_at', { ascending: true });
+      
+      const { data, error } = await Promise.race([fetchPromise, timeoutPromise]);
 
-      if (error) throw error;
+      if (error) {
+        console.warn('⚠️ Erro ao recarregar mensagens:', error);
+        return;
+      }
       
       // Só atualizar se houver mudanças
       console.log('✅ Mensagens recarregadas:', data?.length || 0);
@@ -282,7 +376,8 @@ export const useOrderChat = (orderId: string) => {
         setLastFetch(new Date());
       }
     } catch (err) {
-      console.error('Erro ao recarregar mensagens:', err);
+      console.warn('⚠️ Erro ao recarregar mensagens (não crítico):', err);
+      // Don't throw error for refresh failures - just log and continue
     }
   }, [orderId, messages]);
 
@@ -298,6 +393,17 @@ export const useOrderChat = (orderId: string) => {
       if (!message.trim()) {
         console.warn('Tentativa de enviar mensagem vazia');
         return null;
+      }
+      
+      // Check if Supabase is properly configured
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      
+      if (!supabaseUrl || !supabaseKey || 
+          supabaseUrl === 'your_supabase_url_here' || 
+          supabaseKey === 'your_supabase_anon_key_here' ||
+          supabaseUrl.includes('placeholder')) {
+        throw new Error('Chat não disponível - Supabase não configurado');
       }
       
       const { data, error } = await supabase

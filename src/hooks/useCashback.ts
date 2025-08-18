@@ -178,6 +178,30 @@ export const useCashback = () => {
     }
   }, []);
 
+  const searchCustomersByName = useCallback(async (name: string): Promise<Customer[]> => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*')
+        .ilike('name', `%${name}%`)
+        .limit(10)
+        .order('name');
+
+      if (error) throw error;
+
+      return data || [];
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Erro ao buscar clientes';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const validateCashbackAmount = useCallback(async (
     customerId: string,
     amount: number
@@ -220,6 +244,7 @@ export const useCashback = () => {
     createPurchaseTransaction,
     createRedemptionTransaction,
     getCustomerTransactions,
+    searchCustomersByName,
     validateCashbackAmount
   };
 };

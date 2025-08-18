@@ -354,6 +354,7 @@ export const useStoreHours = () => {
       if (!storeSettings) {
         await updateStoreSettings({
           store_name: 'Elite Açaí',
+          cnpj: '38.130.139/0001-22',
           phone: '(85) 98904-1010',
           address: 'Rua das Frutas, 123 - Centro, Fortaleza/CE',
           delivery_fee: 5.00,

@@ -17,7 +17,7 @@ interface ProductCardProps {
 const ProductCard: React.FC<ProductCardProps> = ({ product, onOpenModal, isSpecialOfTheDay = false, disabled = false }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageLoading, setImageLoading] = useState(true);
-  const isAvailable = isProductAvailable(product);
+  const isAvailable = isProductAvailable(product) && product.isActive !== false;
   const { getProductImage } = useImageUpload();
 
   const getDisplayPrice = () => {
@@ -34,9 +34,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onOpenModal, isSpeci
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-        if (!supabaseUrl || !supabaseKey ||
-            supabaseUrl === 'your_supabase_url_here' ||
-            supabaseKey === 'your_supabase_anon_key_here') {
+        if (!supabaseUrl || !supabaseKey || 
+            supabaseUrl.includes('placeholder') || 
+            supabaseKey.includes('placeholder')) {
           setImageUrl(product.image);
           setImageLoading(false);
           return;
@@ -60,14 +60,19 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onOpenModal, isSpeci
             setImageUrl(product.image);
           }
         } catch (error) {
-          console.error('Error loading product image:', error);
+          // Handle network errors gracefully
+          if (error instanceof TypeError && error.message === 'Failed to fetch') {
+            console.warn('⚠️ Network error loading product image, using fallback');
+          } else {
+            console.warn('⚠️ Error loading product image, using fallback:', error);
+          }
           setImageUrl(product.image);
         }
         
         clearTimeout(timeoutId);
         setImageLoading(false);
       } catch (error) {
-        console.error('Error loading product image:', error);
+        console.warn('⚠️ Error in image loading process, using fallback:', error);
         setImageUrl(product.image);
         setImageLoading(false);
       }

@@ -105,12 +105,9 @@ const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin }) => {
         </form>
 
         <div className="mt-6 text-center">
-          <p className="text-xs text-gray-500">
-            Credenciais de acesso: admin / elite2024
-          </p>
           <a
             href="/"
-            className="block mt-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+            className="block text-sm text-blue-600 hover:text-blue-700 font-medium"
           >
             Voltar para o site
           </a>

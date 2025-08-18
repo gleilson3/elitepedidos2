@@ -35,17 +35,17 @@ const getDaySpecificPromotions = (): string => {
 // Helper function to get initial greeting based on time of day
 export const getInitialGreeting = (): string => {
   const hour = new Date().getHours();
-  let greeting = '';
+  let greeting = '👋 ';
   
   if (hour < 12) {
-    greeting = 'Bom dia! ☀️';
+    greeting += 'Bom dia! ☀️';
   } else if (hour < 18) {
-    greeting = 'Boa tarde! 🌤️';
+    greeting += 'Boa tarde! 🌤️';
   } else {
-    greeting = 'Boa noite! 🌙';
+    greeting += 'Boa noite! 🌙';
   }
   
-  return `${greeting} Bem-vindo(a) ao Elite Açaí! 🍧\n\nEu sou a assistente virtual e estou aqui para ajudar você! Posso te ajudar com:\n\n🛒 Fazer um pedido\n📦 Acompanhar seu pedido\n📋 Ver nosso cardápio\n💰 Informações sobre promoções\n📍 Horários e localização\n\nO que você gostaria de fazer hoje? Digite sua pergunta abaixo.`;
+  return `${greeting} Bem-vindo(a) ao Elite Açaí! 🍧\n\nEu sou a assistente virtual e estou aqui para ajudar você! Posso te ajudar com:\n\n🛒 Fazer um pedido\n📦 Acompanhar seu pedido\n📋 Ver nosso cardápio\n💰 Informações sobre promoções\n📍 Horários e localização\n\nO que você gostaria de fazer hoje? Escolha uma opção abaixo ou digite sua pergunta.`;
 };
 
 // Define all intents with enhanced keywords and responses
@@ -109,7 +109,7 @@ export const intents: Intent[] = [
   // New order intents
   {
     id: 'new_order',
-    keywords: ['fazer pedido', 'pedir açaí', 'começar pedido', 'quero pedir', 'quero comprar', 'comprar', 'pedir'],
+    keywords: ['fazer pedido', 'pedir açaí', 'começar pedido', 'quero pedir', 'quero comprar', 'comprar', 'pedir', 'fazer um pedido', 'iniciar pedido'],
     response: "Olá! Que ótimo que você quer fazer um pedido! 😊\n\nPara fazer seu pedido, você pode:\n\n🌐 Acessar nosso site de delivery\n📱 Usar nosso WhatsApp: (85) 98904-1010\n🏪 Vir até nossa loja\n\nNossos principais produtos:\n🍧 Açaí tradicional (P, M, G)\n🍨 Sorvetes artesanais\n🥤 Bebidas geladas\n🍓 Vitaminas naturais\n\nQual opção prefere para fazer seu pedido?",
     priority: 7
   },

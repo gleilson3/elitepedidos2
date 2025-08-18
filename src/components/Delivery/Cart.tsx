@@ -1,13 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { X, Plus, Minus, ShoppingCart, MessageCircle, Trash2, MapPin, ArrowLeft, Gift } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { X, Plus, Minus, ShoppingCart, MessageCircle, Trash2, MapPin, ArrowLeft, Gift, ChevronRight, CreditCard, Banknote, QrCode, AlertCircle } from 'lucide-react';
+import { Edit3 } from 'lucide-react';
 import { CartItem } from '../../types/product';
 import { DeliveryInfo } from '../../types/delivery';
 import { Customer, CustomerBalance } from '../../types/cashback';
 import { useOrders } from '../../hooks/useOrders';
+import { usePDVCashRegister } from '../../hooks/usePDVCashRegister';
 import { useNeighborhoods } from '../../hooks/useNeighborhoods';
 import { useCashback } from '../../hooks/useCashback';
 import CashbackDisplay from '../Cashback/CashbackDisplay';
 import CashbackButton from '../Cashback/CashbackButton';
+import ProductModal from './ProductModal';
 
 interface CartProps {
   items: CartItem[];
@@ -18,6 +21,7 @@ interface CartProps {
   onClearCart: () => void;
   totalPrice: number;
   disabled?: boolean;
+  onEditItem?: (itemId: string, product: any, selectedSize?: any, quantity: number, observations?: string, selectedComplements?: any[]) => void;
 }
 
 const Cart: React.FC<CartProps> = ({
@@ -28,14 +32,19 @@ const Cart: React.FC<CartProps> = ({
   onRemoveItem,
   onClearCart,
   totalPrice,
-  disabled = false
+  disabled = false,
+  onEditItem
 }) => {
   const [showCheckout, setShowCheckout] = useState(false);
   const [showOrderTracking, setShowOrderTracking] = useState(false);
   const [orderId, setOrderId] = useState<string | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
+  const { isOpen: isCashRegisterOpen } = usePDVCashRegister();
   const [customerBalance, setCustomerBalance] = useState<CustomerBalance | null>(null);
   const [appliedCashback, setAppliedCashback] = useState(0);
+  const [editingItem, setEditingItem] = useState<CartItem | null>(null);
+  const [loadingCustomer, setLoadingCustomer] = useState(false);
+  const [customerSuggestions, setCustomerSuggestions] = useState<Customer[]>([]);
   const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfo>({
     name: '',
     phone: '',
@@ -52,21 +61,78 @@ const Cart: React.FC<CartProps> = ({
     getCustomerBalance, 
     createPurchaseTransaction, 
     createRedemptionTransaction,
-    validateCashbackAmount 
+    validateCashbackAmount,
+    getCustomerByPhone,
+    searchCustomersByName
   } = useCashback();
+
+  const formatPhone = (value: string) => {
+    const numbers = value.replace(/\D/g, '');
+    const limited = numbers.slice(0, 11);
+    
+    if (limited.length <= 2) {
+      return limited;
+    } else if (limited.length <= 7) {
+      return `(${limited.slice(0, 2)}) ${limited.slice(2)}`;
+    } else {
+      return `(${limited.slice(0, 2)}) ${limited.slice(2, 7)}-${limited.slice(7)}`;
+    }
+  };
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatPhone(e.target.value);
+    setDeliveryInfo(prev => ({ ...prev, phone: formatted }));
+  };
 
   // Carregar dados do cliente quando o telefone for preenchido
   useEffect(() => {
     const loadCustomerData = async () => {
-      if (deliveryInfo.phone && deliveryInfo.phone.length >= 11) {
+      const phoneNumbers = deliveryInfo.phone.replace(/\D/g, '');
+      if (phoneNumbers.length >= 11) {
         try {
-          const customerData = await getOrCreateCustomer(deliveryInfo.phone, deliveryInfo.name);
-          setCustomer(customerData);
+          setLoadingCustomer(true);
           
-          const balance = await getCustomerBalance(customerData.id);
-          setCustomerBalance(balance);
+          const existingCustomer = await getCustomerByPhone(phoneNumbers);
+          
+          if (existingCustomer) {
+            console.log('✅ Cliente encontrado:', existingCustomer);
+            setCustomer(existingCustomer);
+            
+            setDeliveryInfo(prev => ({
+              ...prev,
+              name: existingCustomer.name || prev.name
+            }));
+            
+            const balance = await getCustomerBalance(existingCustomer.id);
+            setCustomerBalance(balance);
+            
+            const notification = document.createElement('div');
+            notification.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2';
+            notification.innerHTML = `
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+              </svg>
+              Cliente reconhecido: ${existingCustomer.name || 'Cliente'}
+            `;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+              if (document.body.contains(notification)) {
+                document.body.removeChild(notification);
+              }
+            }, 3000);
+          } else {
+            setCustomer(null);
+            setCustomerBalance(null);
+            setAppliedCashback(0);
+          }
         } catch (error) {
-          console.error('Erro ao carregar dados do cliente:', error);
+          console.error('Erro ao buscar cliente:', error);
+          setCustomer(null);
+          setCustomerBalance(null);
+          setAppliedCashback(0);
+        } finally {
+          setLoadingCustomer(false);
         }
       } else {
         setCustomer(null);
@@ -75,8 +141,71 @@ const Cart: React.FC<CartProps> = ({
       }
     };
 
-    loadCustomerData();
-  }, [deliveryInfo.phone, deliveryInfo.name, getOrCreateCustomer, getCustomerBalance]);
+    const timeoutId = setTimeout(loadCustomerData, 500);
+    return () => clearTimeout(timeoutId);
+  }, [deliveryInfo.phone, getCustomerByPhone, getCustomerBalance]);
+
+  const searchCustomerSuggestions = useCallback(async (name: string) => {
+    if (name.length < 3) {
+      setCustomerSuggestions([]);
+      return;
+    }
+
+    try {
+      const suggestions = await searchCustomersByName(name);
+      setCustomerSuggestions(suggestions.slice(0, 5));
+    } catch (error) {
+      console.error('Erro ao buscar sugestões:', error);
+      setCustomerSuggestions([]);
+    }
+  }, [searchCustomersByName]);
+
+  useEffect(() => {
+    if (deliveryInfo.name && !customer) {
+      const timeoutId = setTimeout(() => {
+        searchCustomerSuggestions(deliveryInfo.name);
+      }, 300);
+      return () => clearTimeout(timeoutId);
+    } else {
+      setCustomerSuggestions([]);
+    }
+  }, [deliveryInfo.name, customer, searchCustomerSuggestions]);
+
+  const selectCustomerSuggestion = async (selectedCustomer: Customer) => {
+    setCustomer(selectedCustomer);
+    setDeliveryInfo(prev => ({
+      ...prev,
+      name: selectedCustomer.name || prev.name,
+      phone: formatPhone(selectedCustomer.phone)
+    }));
+    setCustomerSuggestions([]);
+    
+    try {
+      const balance = await getCustomerBalance(selectedCustomer.id);
+      setCustomerBalance(balance);
+    } catch (error) {
+      console.error('Erro ao carregar saldo:', error);
+    }
+  };
+
+  const ensureCustomerExists = async () => {
+    if (!customer && deliveryInfo.phone && deliveryInfo.name) {
+      try {
+        const phoneNumbers = deliveryInfo.phone.replace(/\D/g, '');
+        const customerData = await getOrCreateCustomer(phoneNumbers, deliveryInfo.name);
+        setCustomer(customerData);
+        
+        const balance = await getCustomerBalance(customerData.id);
+        setCustomerBalance(balance);
+        
+        return customerData;
+      } catch (error) {
+        console.error('Erro ao criar/buscar cliente:', error);
+        return null;
+      }
+    }
+    return customer;
+  };
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -127,10 +256,20 @@ const Cart: React.FC<CartProps> = ({
     setAppliedCashback(0);
   };
 
+  const handleEditItem = (item: CartItem) => {
+    setEditingItem(item);
+  };
+
+  const handleSaveEditedItem = (product: any, selectedSize?: any, quantity: number = 1, observations?: string, selectedComplements: any[] = []) => {
+    if (editingItem && onEditItem) {
+      onEditItem(editingItem.id, product, selectedSize, quantity, observations, selectedComplements);
+      setEditingItem(null);
+    }
+  };
+
   const generateWhatsAppMessage = (orderId?: string, cashbackEarned?: number) => {
     let message = `🥤 *PEDIDO ELITE AÇAÍ*\n\n`;
     
-    // Itens do pedido
     message += `📋 *ITENS:*\n`;
     items.forEach((item, index) => {
       message += `${index + 1}. ${item.product.name.replace(/[^\x00-\x7F]/g, "")}`;
@@ -139,7 +278,6 @@ const Cart: React.FC<CartProps> = ({
       }
       message += `\n   Qtd: ${item.quantity}x - ${formatPrice(item.totalPrice)}`;
       
-      // Complementos selecionados
       if (item.selectedComplements && item.selectedComplements.length > 0) {
         message += `\n   *Complementos:*`;
         item.selectedComplements.forEach(selected => {
@@ -156,7 +294,6 @@ const Cart: React.FC<CartProps> = ({
       message += `\n\n`;
     });
 
-    // Valores
     message += `💰 *VALORES:*\n`;
     message += `Subtotal: ${formatPrice(totalPrice)}\n`;
     if (getDeliveryFee() > 0) {
@@ -167,14 +304,12 @@ const Cart: React.FC<CartProps> = ({
     }
     message += `*TOTAL: ${formatPrice(getTotalWithCashback())}*\n\n`;
 
-    // Cashback ganho
     if (cashbackEarned && cashbackEarned > 0) {
       message += `🎁 *CASHBACK GANHO:*\n`;
       message += `Você ganhou ${formatPrice(cashbackEarned)} de cashback!\n`;
       message += `Use até o final deste mês.\n\n`;
     }
 
-    // Dados de entrega
     message += `📍 *DADOS DE ENTREGA:*\n`;
     message += `Nome: ${deliveryInfo.name.replace(/[^\x00-\x7F]/g, "")}\n`;
     message += `Telefone: ${deliveryInfo.phone}\n`;
@@ -191,7 +326,6 @@ const Cart: React.FC<CartProps> = ({
       message += `Complemento: ${deliveryInfo.complement.replace(/[^\x00-\x7F]/g, "")}\n`;
     }
     
-    // Forma de pagamento
     message += `\n💳 *PAGAMENTO:* `;
     switch (deliveryInfo.paymentMethod) {
       case 'money':
@@ -204,7 +338,7 @@ const Cart: React.FC<CartProps> = ({
         message += `PIX\n`;
         message += `📱 *DADOS PIX:*\n`;
         message += `Chave: 85989041010\n`;
-        message += `Nome: Grupo Elite\n`;
+        message += `Nome: Amanda Suyelen da Costa Pereira\n`;
         message += `Valor: ${formatPrice(getTotalWithCashback())}\n\n`;
         message += `⚠️ *IMPORTANTE:* Envie o comprovante do PIX para confirmar o pedido!`;
         break;
@@ -213,7 +347,6 @@ const Cart: React.FC<CartProps> = ({
         break;
     }
 
-    // Link de acompanhamento se o pedido foi criado
     if (orderId) {
       message += `\n\n🔗 *ACOMPANHAR PEDIDO:*\n`;
       message += `${window.location.origin}/pedido/${orderId}\n\n`;
@@ -227,7 +360,6 @@ const Cart: React.FC<CartProps> = ({
     try {
       const neighborhood = getSelectedNeighborhood();
       
-      // Criar pedido no sistema
       const orderData = {
         customer_name: deliveryInfo.name,
         customer_phone: deliveryInfo.phone,
@@ -263,37 +395,48 @@ const Cart: React.FC<CartProps> = ({
 
       let cashbackEarned = 0;
 
-      // Processar transações de cashback se cliente estiver identificado
       if (customer) {
-        // Aplicar resgate de cashback se houver
+        let currentCustomer = customer;
+        
         if (appliedCashback > 0) {
-          // Round to 2 decimal places to ensure precision consistency
           const roundedCashback = Math.round(appliedCashback * 100) / 100;
-          await createRedemptionTransaction(customer.id, roundedCashback, newOrder.id);
+          await createRedemptionTransaction(currentCustomer.id, roundedCashback, newOrder.id);
         }
 
-        // Criar transação de compra para gerar cashback
         const purchaseTransaction = await createPurchaseTransaction(
-          customer.id, 
+          currentCustomer.id, 
           getTotalWithCashback(), 
           newOrder.id
         );
         cashbackEarned = purchaseTransaction.cashback_amount;
+      } else {
+        let currentCustomer = await ensureCustomerExists();
+        
+        if (currentCustomer) {
+          if (appliedCashback > 0) {
+            const roundedCashback = Math.round(appliedCashback * 100) / 100;
+            await createRedemptionTransaction(currentCustomer.id, roundedCashback, newOrder.id);
+          }
+
+          const purchaseTransaction = await createPurchaseTransaction(
+            currentCustomer.id, 
+            getTotalWithCashback(), 
+            newOrder.id
+          );
+          cashbackEarned = purchaseTransaction.cashback_amount;
+        }
       }
 
-      // Enviar para WhatsApp com informações de cashback
       const message = generateWhatsAppMessage(newOrder.id, cashbackEarned);
       const whatsappUrl = `https://wa.me/5585989041010?text=${message}`;
       window.open(whatsappUrl, '_blank');
 
-      // Limpar carrinho e mostrar tracking
       onClearCart();
       setShowCheckout(false);
       setShowOrderTracking(true);
       
     } catch (error) {
       console.error('Erro ao criar pedido:', error);
-      // Fallback para WhatsApp apenas
       const message = generateWhatsAppMessage();
       const whatsappUrl = `https://wa.me/5585989041010?text=${message}`;
       window.open(whatsappUrl, '_blank');
@@ -316,7 +459,6 @@ const Cart: React.FC<CartProps> = ({
 
   if (!isOpen) return null;
 
-  // Mostrar tela de acompanhamento se pedido foi criado
   if (showOrderTracking && orderId) {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -384,34 +526,48 @@ const Cart: React.FC<CartProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
-      <div className="bg-white w-full sm:max-w-md sm:rounded-2xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 transition-opacity duration-300">
+      <div className="bg-white w-full sm:max-w-md sm:rounded-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl transform transition-transform duration-300 ease-out">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-            <ShoppingCart size={24} />
-            {showCheckout ? 'Finalizar Pedido' : 'Seu Carrinho'}
+        <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white z-10">
+          <h2 className="text-xl font-bold text-gray-800 flex items-center gap-3">
+            {showCheckout ? (
+              <>
+                <div className="bg-purple-100 rounded-full p-2">
+                  <ChevronRight size={20} className="text-purple-600" />
+                </div>
+                Finalizar Pedido
+              </>
+            ) : (
+              <>
+                <div className="bg-green-100 rounded-full p-2">
+                  <ShoppingCart size={20} className="text-green-600" />
+                </div>
+                Seu Carrinho
+              </>
+            )}
           </h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500 hover:text-gray-700"
           >
             <X size={20} />
           </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto px-5 py-4">
           {!showCheckout ? (
-            // Carrinho
-            <div className="p-4">
+            <div>
               {items.length === 0 ? (
-                <div className="text-center py-8">
-                  <ShoppingCart size={48} className="mx-auto text-gray-300 mb-4" />
-                  <p className="text-gray-500 mb-4">Seu carrinho está vazio</p>
+                <div className="text-center py-12">
+                  <div className="bg-gray-100 rounded-full p-6 w-24 h-24 mx-auto mb-6 flex items-center justify-center">
+                    <ShoppingCart size={32} className="text-gray-400" />
+                  </div>
+                  <p className="text-gray-600 text-lg mb-6">Seu carrinho está vazio</p>
                   <button
                     onClick={handleContinueShopping}
-                    className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 mx-auto"
+                    className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-medium transition-colors flex items-center gap-2 mx-auto shadow-md hover:shadow-lg"
                   >
                     <ArrowLeft size={18} />
                     Continuar Comprando
@@ -420,67 +576,78 @@ const Cart: React.FC<CartProps> = ({
               ) : (
                 <div className="space-y-4">
                   {items.map((item) => (
-                    <div key={item.id} className="bg-gray-50 rounded-lg p-4">
-                      <div className="flex items-start gap-3">
+                    <div key={item.id} className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition-all">
+                      <div className="flex items-start gap-4">
                         <img
                           src={item.product.image}
                           alt={item.product.name}
-                          className="w-16 h-16 object-cover rounded-lg"
+                          className="w-20 h-20 object-cover rounded-lg"
                         />
                         <div className="flex-1">
-                          <h3 className="font-semibold text-gray-800">{item.product.name}</h3>
+                          <h3 className="font-semibold text-gray-800 text-lg">{item.product.name}</h3>
                           {item.selectedSize && (
-                            <p className="text-sm text-gray-600">{item.selectedSize.name}</p>
+                            <p className="text-sm text-gray-600 mt-1">{item.selectedSize.name}</p>
                           )}
                           
-                          {/* Complementos */}
                           {item.selectedComplements && item.selectedComplements.length > 0 && (
-                            <div className="mt-2">
-                              <p className="text-xs font-medium text-gray-700 mb-1">Complementos:</p>
-                              <div className="space-y-1">
+                            <div className="mt-3">
+                              <p className="text-xs font-medium text-gray-700 mb-2">Complementos:</p>
+                              <div className="flex flex-wrap gap-2">
                                 {item.selectedComplements.map((selected, idx) => (
-                                  <p key={idx} className="text-xs text-gray-600">
-                                    • {selected.complement.name}
+                                  <span key={idx} className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700">
+                                    {selected.complement.name}
                                     {selected.complement.price > 0 && (
-                                      <span className="text-green-600 ml-1">
+                                      <span className="text-green-600 ml-1 font-semibold">
                                         (+{formatPrice(selected.complement.price)})
                                       </span>
                                     )}
-                                  </p>
+                                  </span>
                                 ))}
                               </div>
                             </div>
                           )}
                           
                           {item.observations && (
-                            <p className="text-sm text-gray-500 italic mt-1">Obs: {item.observations}</p>
+                            <div className="mt-3 bg-yellow-50 border border-yellow-100 rounded-lg p-2">
+                              <p className="text-sm text-yellow-700">
+                                <span className="font-medium">Observações:</span> {item.observations}
+                              </p>
+                            </div>
                           )}
-                          <div className="flex items-center justify-between mt-2">
+                          <div className="flex items-center justify-between mt-4">
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => onUpdateQuantity(item.id, item.quantity - 1)}
                                 disabled={disabled}
-                                className="bg-white rounded-full p-1 shadow-sm hover:shadow-md transition-shadow disabled:opacity-50"
+                                className="bg-gray-100 hover:bg-gray-200 rounded-full p-2 transition-colors disabled:opacity-50"
                               >
                                 <Minus size={16} />
                               </button>
-                              <span className="font-medium w-8 text-center">{item.quantity}</span>
+                              <span className="font-medium w-8 text-center text-lg">{item.quantity}</span>
                               <button
                                 onClick={() => onUpdateQuantity(item.id, item.quantity + 1)}
                                 disabled={disabled}
-                                className="bg-white rounded-full p-1 shadow-sm hover:shadow-md transition-shadow disabled:opacity-50"
+                                className="bg-gray-100 hover:bg-gray-200 rounded-full p-2 transition-colors disabled:opacity-50"
                               >
                                 <Plus size={16} />
                               </button>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="font-bold text-purple-600">
+                              <button
+                                onClick={() => handleEditItem(item)}
+                                disabled={disabled}
+                                className="text-blue-500 hover:text-blue-700 p-2 hover:bg-blue-50 rounded-full transition-colors disabled:opacity-50"
+                                title="Editar complementos"
+                              >
+                                <Edit3 size={16} />
+                              </button>
+                              <span className="font-bold text-purple-600 text-lg">
                                 {formatPrice(item.totalPrice)}
                               </span>
                               <button
                                 onClick={() => onRemoveItem(item.id)}
                                 disabled={disabled}
-                                className="text-red-500 hover:text-red-700 p-1 disabled:opacity-50"
+                                className="text-red-500 hover:text-red-700 p-2 hover:bg-red-50 rounded-full transition-colors disabled:opacity-50"
                               >
                                 <Trash2 size={16} />
                               </button>
@@ -494,41 +661,75 @@ const Cart: React.FC<CartProps> = ({
               )}
             </div>
           ) : (
-            // Checkout
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
                   Nome completo *
                 </label>
-                <input
-                  type="text"
-                  value={deliveryInfo.name}
-                  onChange={(e) => setDeliveryInfo(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  placeholder="Seu nome"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={deliveryInfo.name}
+                    onChange={(e) => setDeliveryInfo(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full p-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-sm"
+                    placeholder="Seu nome"
+                    required
+                  />
+                  
+                  {customerSuggestions.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 bg-white border border-gray-300 rounded-lg shadow-lg z-10 mt-1">
+                      {customerSuggestions.map((suggestion) => (
+                        <button
+                          key={suggestion.id}
+                          type="button"
+                          onClick={() => selectCustomerSuggestion(suggestion)}
+                          className="w-full text-left p-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 first:rounded-t-lg last:rounded-b-lg"
+                        >
+                          <div className="font-medium text-gray-800">{suggestion.name}</div>
+                          <div className="text-sm text-gray-500">{formatPhone(suggestion.phone)}</div>
+                          {suggestion.email && (
+                            <div className="text-xs text-gray-400">{suggestion.email}</div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
                   Telefone *
                 </label>
-                <input
-                  type="tel"
-                  value={deliveryInfo.phone}
-                  onChange={(e) => setDeliveryInfo(prev => ({ ...prev, phone: e.target.value }))}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  placeholder="(85) 99999-9999"
-                />
+                <div className="relative">
+                  <input
+                    type="tel"
+                    value={deliveryInfo.phone}
+                    onChange={handlePhoneChange}
+                    className="w-full p-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-sm"
+                    placeholder="(85) 99999-9999"
+                    required
+                  />
+                  {loadingCustomer && (
+                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-600"></div>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  {customer ? 
+                    '✅ Cliente reconhecido - dados preenchidos automaticamente' : 
+                    'Digite seu telefone para identificação automática'
+                  }
+                </p>
               </div>
 
-              {/* Exibir cashback se cliente identificado */}
               {customerBalance && (
-                <CashbackDisplay balance={customerBalance} />
+                <CashbackDisplay balance={customerBalance} className="my-6" />
               )}
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
                   Bairro *
                 </label>
                 <div className="relative">
@@ -536,7 +737,7 @@ const Cart: React.FC<CartProps> = ({
                   <select
                     value={deliveryInfo.neighborhood}
                     onChange={(e) => setDeliveryInfo(prev => ({ ...prev, neighborhood: e.target.value }))}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-sm appearance-none bg-white"
                   >
                     <option value="">Selecione seu bairro</option>
                     {neighborhoods.map(neighborhood => (
@@ -547,46 +748,45 @@ const Cart: React.FC<CartProps> = ({
                   </select>
                 </div>
                 {deliveryInfo.neighborhood && (
-                  <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
+                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm">
                     <div className="flex justify-between">
-                      <span>Taxa de entrega:</span>
-                      <span className="font-medium">{formatPrice(getDeliveryFee())}</span>
+                      <span className="text-blue-700">Taxa de entrega:</span>
+                      <span className="font-medium text-blue-800">{formatPrice(getDeliveryFee())}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Tempo estimado:</span>
-                      <span className="font-medium">{getEstimatedDeliveryTime()} minutos</span>
+                      <span className="text-blue-700">Tempo estimado:</span>
+                      <span className="font-medium text-blue-800">{getEstimatedDeliveryTime()} minutos</span>
                     </div>
                   </div>
                 )}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
                   Endereço *
                 </label>
                 <input
                   type="text"
                   value={deliveryInfo.address}
                   onChange={(e) => setDeliveryInfo(prev => ({ ...prev, address: e.target.value }))}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full p-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-sm"
                   placeholder="Rua, número"
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
                   Complemento
                 </label>
                 <input
                   type="text"
                   value={deliveryInfo.complement}
                   onChange={(e) => setDeliveryInfo(prev => ({ ...prev, complement: e.target.value }))}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full p-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-sm"
                   placeholder="Apartamento, bloco, etc."
                 />
               </div>
 
-              {/* Botão de Cashback */}
               {customerBalance && customerBalance.available_balance > 0 && (
                 <CashbackButton
                   availableBalance={customerBalance.available_balance}
@@ -598,69 +798,93 @@ const Cart: React.FC<CartProps> = ({
                 />
               )}
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700">
                   Forma de pagamento *
                 </label>
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2">
+                <div className="grid grid-cols-1 gap-3">
+                  <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors">
                     <input
                       type="radio"
                       name="payment"
                       value="money"
                       checked={deliveryInfo.paymentMethod === 'money'}
                       onChange={(e) => setDeliveryInfo(prev => ({ ...prev, paymentMethod: e.target.value as any }))}
-                      className="text-purple-600"
+                      className="text-purple-600 h-5 w-5"
                     />
-                    <span>Dinheiro</span>
+                    <div className="flex items-center gap-2">
+                      <Banknote size={20} className="text-green-600" />
+                      <span className="font-medium">Dinheiro</span>
+                    </div>
                   </label>
-                  <label className="flex items-center gap-2">
+                  <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors">
                     <input
                       type="radio"
                       name="payment"
                       value="pix"
                       checked={deliveryInfo.paymentMethod === 'pix'}
                       onChange={(e) => setDeliveryInfo(prev => ({ ...prev, paymentMethod: e.target.value as any }))}
-                      className="text-purple-600"
+                      className="text-purple-600 h-5 w-5"
                     />
-                    <span>PIX</span>
+                    <div className="flex items-center gap-2">
+                      <QrCode size={20} className="text-blue-600" />
+                      <span className="font-medium">PIX</span>
+                    </div>
                   </label>
-                  <label className="flex items-center gap-2">
+                  <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors">
                     <input
                       type="radio"
                       name="payment"
                       value="card"
                       checked={deliveryInfo.paymentMethod === 'card'}
                       onChange={(e) => setDeliveryInfo(prev => ({ ...prev, paymentMethod: e.target.value as any }))}
-                      className="text-purple-600"
+                      className="text-purple-600 h-5 w-5"
                     />
-                    <span>Cartão</span>
+                    <div className="flex items-center gap-2">
+                      <CreditCard size={20} className="text-purple-600" />
+                      <span className="font-medium">Cartão</span>
+                    </div>
                   </label>
                 </div>
               </div>
 
-              {/* Informações do PIX */}
               {deliveryInfo.paymentMethod === 'pix' && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="font-medium text-blue-800 mb-3 flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                    </svg>
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-5 my-4">
+                  <h4 className="font-medium text-blue-800 mb-4 flex items-center gap-2">
+                    <QrCode size={20} className="text-blue-600" />
                     Dados para PIX
                   </h4>
                   
-                  <div className="space-y-3">
-                    <div className="bg-white rounded-lg p-3 border border-blue-300">
+                  <div className="space-y-4">
+                    <div className="bg-white rounded-xl p-4 border border-blue-300 shadow-sm text-center">
+                      <div className="mb-3">
+                        <p className="text-sm font-medium text-blue-700 mb-2">QR Code PIX:</p>
+                        <img 
+                          src="/WhatsApp%20Image%202025-07-22%20at%2014.53.40.jpeg" 
+                          alt="QR Code PIX" 
+                          className="w-32 h-32 mx-auto border border-gray-200 rounded-lg object-contain"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            const fallback = document.createElement('div');
+                            fallback.className = 'w-32 h-32 mx-auto border border-gray-200 rounded-lg bg-gray-100 flex items-center justify-center';
+                            fallback.innerHTML = '<p class="text-gray-500 text-sm">QR Code<br/>Indisponível</p>';
+                            target.parentNode?.insertBefore(fallback, target);
+                          }}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="bg-white rounded-xl p-4 border border-blue-300 shadow-sm">
                       <div className="grid grid-cols-1 gap-2">
                         <div>
-                          <p className="text-sm font-medium text-blue-700">Chave PIX:</p>
+                          <p className="text-sm font-medium text-blue-700 mb-1">Chave PIX:</p>
                           <div className="flex items-center gap-2">
-                            <p className="font-mono text-lg font-bold text-blue-900">85989041010</p>
+                            <p className="font-mono text-xl font-bold text-blue-900">85989041010</p>
                             <button
                               type="button"
                               onClick={() => {
                                 navigator.clipboard.writeText('85989041010');
-                                // Feedback visual
                                 const btn = event?.target as HTMLElement;
                                 const originalText = btn.textContent;
                                 btn.textContent = 'Copiado!';
@@ -668,30 +892,28 @@ const Cart: React.FC<CartProps> = ({
                                   btn.textContent = originalText;
                                 }, 2000);
                               }}
-                              className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded transition-colors"
+                              className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded-lg transition-colors font-medium"
                             >
                               Copiar
                             </button>
                           </div>
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-blue-700">Nome:</p>
-                          <p className="font-semibold text-blue-900">Grupo Elite</p>
+                          <p className="text-sm font-medium text-blue-700 mb-1">Nome:</p>
+                          <p className="font-semibold text-blue-900">Amanda Suyelen da Costa Pereira</p>
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-blue-700">Valor:</p>
-                          <p className="font-bold text-lg text-green-600">
+                          <p className="text-sm font-medium text-blue-700 mb-1">Valor:</p>
+                          <p className="font-bold text-xl text-green-600">
                             {formatPrice(getTotalWithCashback())}
                           </p>
                         </div>
                       </div>
                     </div>
                     
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 shadow-sm">
                       <div className="flex items-start gap-2">
-                        <svg className="w-5 h-5 text-yellow-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
+                        <AlertCircle size={20} className="text-yellow-600 mt-0.5 flex-shrink-0" />
                         <div>
                           <p className="text-sm font-medium text-yellow-800">Importante:</p>
                           <p className="text-sm text-yellow-700">
@@ -703,9 +925,10 @@ const Cart: React.FC<CartProps> = ({
                   </div>
                 </div>
               )}
+
               {deliveryInfo.paymentMethod === 'money' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
                     Troco para quanto?
                   </label>
                   <input
@@ -713,7 +936,7 @@ const Cart: React.FC<CartProps> = ({
                     step="0.01"
                     value={deliveryInfo.changeFor || ''}
                     onChange={(e) => setDeliveryInfo(prev => ({ ...prev, changeFor: parseFloat(e.target.value) || undefined }))}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full p-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-sm"
                     placeholder="Valor para troco"
                   />
                 </div>
@@ -724,48 +947,48 @@ const Cart: React.FC<CartProps> = ({
 
         {/* Footer */}
         {items.length > 0 && (
-          <div className="border-t p-4 space-y-3">
+          <div className="border-t p-5 space-y-4 bg-white sticky bottom-0 shadow-md">
             {showCheckout && (
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span>Subtotal:</span>
-                  <span>{formatPrice(totalPrice)}</span>
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Subtotal dos itens:</span>
+                  <span className="font-medium">{formatPrice(totalPrice)}</span>
                 </div>
                 {getDeliveryFee() > 0 && (
-                  <div className="flex justify-between">
+                  <div className="flex justify-between text-sm text-gray-600">
                     <span>Taxa de entrega:</span>
-                    <span>{formatPrice(getDeliveryFee())}</span>
+                    <span className="font-medium">{formatPrice(getDeliveryFee())}</span>
                   </div>
                 )}
                 {appliedCashback > 0 && (
-                  <div className="flex justify-between text-green-600">
+                  <div className="flex justify-between text-green-600 text-sm">
                     <span>Desconto cashback:</span>
-                    <span>-{formatPrice(appliedCashback)}</span>
+                    <span className="font-medium">-{formatPrice(appliedCashback)}</span>
                   </div>
                 )}
-                <hr />
+                <div className="border-t border-gray-200 my-2 pt-2"></div>
               </div>
             )}
             
-            <div className="flex justify-between items-center">
-              <span className="text-lg font-semibold">Total:</span>
-              <span className="text-xl font-bold text-green-600">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-lg font-semibold text-gray-800">Total:</span>
+              <span className="text-2xl font-bold text-green-600">
                 {showCheckout ? formatPrice(getTotalWithCashback()) : formatPrice(totalPrice)}
               </span>
             </div>
             
             {!showCheckout ? (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <button
                   onClick={() => setShowCheckout(true)}
                   disabled={disabled}
-                  className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white py-3 rounded-lg font-semibold transition-colors"
+                  className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white py-3.5 rounded-xl font-semibold transition-colors shadow-md hover:shadow-lg"
                 >
                   {disabled ? 'Loja Fechada' : 'Finalizar Pedido'}
                 </button>
                 <button
                   onClick={handleContinueShopping}
-                  className="w-full bg-gray-500 hover:bg-gray-600 text-white py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                  className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
                 >
                   <ArrowLeft size={18} />
                   Continuar Comprando
@@ -774,32 +997,44 @@ const Cart: React.FC<CartProps> = ({
             ) : (
               <div className="space-y-2">
                 <button
+                  onClick={handleSendOrder}
+                  disabled={!isFormValid() || disabled || !isCashRegisterOpen}
+                  className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white py-3.5 rounded-xl font-semibold transition-colors flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                >
+                  <MessageCircle size={20} />
+                  {disabled ? 'Loja Fechada' : !isCashRegisterOpen ? 'Caixa Fechado' : 'Finalizar Pedido'}
+                </button>
+                {!isCashRegisterOpen && !disabled && (
+                  <div className="text-xs text-red-600 text-center mt-2 bg-red-50 p-2 rounded-lg">
+                    Não é possível finalizar pedidos sem um caixa aberto
+                  </div>
+                )}
+                <button
                   onClick={() => setShowCheckout(false)}
-                  className="w-full bg-gray-500 hover:bg-gray-600 text-white py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                  className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 mt-2"
                 >
                   <ArrowLeft size={18} />
                   Voltar ao Carrinho
-                </button>
-                <button
-                  onClick={handleSendOrder}
-                  disabled={!isFormValid() || disabled}
-                  className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white py-3 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
-                >
-                  <MessageCircle size={20} />
-                  {disabled ? 'Loja Fechada' : 'Finalizar Pedido'}
-                </button>
-                <button
-                  onClick={handleContinueShopping}
-                  className="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-                >
-                  <ArrowLeft size={18} />
-                  Continuar Comprando
                 </button>
               </div>
             )}
           </div>
         )}
       </div>
+
+      {editingItem && (
+        <ProductModal
+          product={editingItem.product}
+          isOpen={true}
+          onClose={() => setEditingItem(null)}
+          onAddToCart={handleSaveEditedItem}
+          initialSize={editingItem.selectedSize}
+          initialQuantity={editingItem.quantity}
+          initialObservations={editingItem.observations}
+          initialComplements={editingItem.selectedComplements}
+          isEditing={true}
+        />
+      )}
     </div>
   );
 };

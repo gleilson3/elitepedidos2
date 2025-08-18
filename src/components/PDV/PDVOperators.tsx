@@ -1,62 +1,244 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Edit3, Trash2, Search, Eye, EyeOff, Lock, Save } from 'lucide-react';
-import { usePermissions } from '../../hooks/usePermissions';
-import PermissionGuard from '../PermissionGuard';
 import { supabase } from '../../lib/supabase';
-import { PDVOperator } from '../../types/pdv';
+import { Users, Plus, Edit3, Trash2, Search, Eye, EyeOff, Lock, Save, User, AlertCircle, X } from 'lucide-react';
+
+interface PDVOperator {
+  id: string;
+  name: string;
+  code: string;
+  password_hash: string;
+  is_active: boolean;
+  permissions: {
+    can_cancel: boolean;
+    can_discount: boolean;
+    can_use_scale: boolean;
+    can_view_sales: boolean;
+    can_view_orders: boolean;
+    can_view_reports: boolean;
+    can_view_products: boolean;
+    can_view_operators: boolean;
+    can_manage_products: boolean;
+    can_manage_settings: boolean;
+    can_view_attendance: boolean;
+    can_view_cash_report: boolean;
+    can_view_sales_report: boolean;
+    can_view_cash_register: boolean;
+    can_view_expected_balance: boolean;
+  };
+  created_at: string;
+  updated_at: string;
+  last_login?: string;
+}
 
 const PDVOperators: React.FC = () => {
-  const { hasPermission } = usePermissions();
   const [operators, setOperators] = useState<PDVOperator[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingOperator, setEditingOperator] = useState<PDVOperator | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [supabaseConfigured, setSupabaseConfigured] = useState(true);
 
+  // Check Supabase configuration
   useEffect(() => {
-    fetchOperators();
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    
+    const isConfigured = supabaseUrl && supabaseKey && 
+                        supabaseUrl !== 'your_supabase_url_here' && 
+                        supabaseKey !== 'your_supabase_anon_key_here' &&
+                        !supabaseUrl.includes('placeholder');
+    
+    setSupabaseConfigured(isConfigured);
   }, []);
 
   const fetchOperators = async () => {
     try {
       setLoading(true);
+      setError(null);
+
+      if (!supabaseConfigured) {
+        console.warn('⚠️ Supabase não configurado - usando dados de demonstração');
+        
+        // Dados de demonstração
+        const demoOperators: PDVOperator[] = [
+          {
+            id: '1',
+            name: 'Administrador',
+            code: 'ADMIN',
+            password_hash: 'elite2024',
+            is_active: true,
+            permissions: {
+              can_cancel: true,
+              can_discount: true,
+              can_use_scale: true,
+              can_view_sales: true,
+              can_view_orders: true,
+              can_view_reports: true,
+              can_view_products: true,
+              can_view_operators: true,
+              can_manage_products: true,
+              can_manage_settings: true,
+              can_view_attendance: true,
+              can_view_cash_report: true,
+              can_view_sales_report: true,
+              can_view_cash_register: true,
+              can_view_expected_balance: true
+            },
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        ];
+        
+        setOperators(demoOperators);
+        setLoading(false);
+        return;
+      }
+
+      console.log('🔄 Carregando operadores do banco...');
+      
       const { data, error } = await supabase
         .from('pdv_operators')
         .select('*')
         .order('name');
 
       if (error) throw error;
+
+      console.log(`✅ ${data?.length || 0} operadores carregados`);
       setOperators(data || []);
-    } catch (error) {
-      console.error('Erro ao carregar operadores:', error);
-      alert('Erro ao carregar operadores');
+    } catch (err) {
+      console.error('❌ Erro ao carregar operadores:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao carregar operadores');
     } finally {
       setLoading(false);
     }
   };
 
+  const createOperator = async (operatorData: Omit<PDVOperator, 'id' | 'created_at' | 'updated_at'>) => {
+    try {
+      if (!supabaseConfigured) {
+        // Fallback para localStorage se Supabase não configurado
+        const newOperator: PDVOperator = {
+          ...operatorData,
+          id: Date.now().toString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        setOperators(prev => [...prev, newOperator]);
+        return newOperator;
+      }
+
+      console.log('🚀 Criando operador no banco:', operatorData.name);
+
+      const { data, error } = await supabase
+        .from('pdv_operators')
+        .insert([operatorData])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log('✅ Operador criado:', data);
+      setOperators(prev => [...prev, data]);
+      return data;
+    } catch (err) {
+      console.error('❌ Erro ao criar operador:', err);
+      throw new Error(err instanceof Error ? err.message : 'Erro ao criar operador');
+    }
+  };
+
+  const updateOperator = async (id: string, updates: Partial<PDVOperator>) => {
+    try {
+      if (!supabaseConfigured) {
+        // Fallback para localStorage se Supabase não configurado
+        setOperators(prev => prev.map(op => 
+          op.id === id ? { ...op, ...updates, updated_at: new Date().toISOString() } : op
+        ));
+        return;
+      }
+
+      console.log('✏️ Atualizando operador:', id);
+
+      const { data, error } = await supabase
+        .from('pdv_operators')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      console.log('✅ Operador atualizado:', data);
+      setOperators(prev => prev.map(op => op.id === id ? data : op));
+      return data;
+    } catch (err) {
+      console.error('❌ Erro ao atualizar operador:', err);
+      throw new Error(err instanceof Error ? err.message : 'Erro ao atualizar operador');
+    }
+  };
+
+  const deleteOperator = async (id: string) => {
+    try {
+      if (!supabaseConfigured) {
+        // Fallback para localStorage se Supabase não configurado
+        setOperators(prev => prev.filter(op => op.id !== id));
+        return;
+      }
+
+      console.log('🗑️ Excluindo operador:', id);
+
+      const { error } = await supabase
+        .from('pdv_operators')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      console.log('✅ Operador excluído');
+      setOperators(prev => prev.filter(op => op.id !== id));
+    } catch (err) {
+      console.error('❌ Erro ao excluir operador:', err);
+      throw new Error(err instanceof Error ? err.message : 'Erro ao excluir operador');
+    }
+  };
+
   const filteredOperators = searchTerm
-    ? operators.filter(op => 
-        op.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        op.code.toLowerCase().includes(searchTerm.toLowerCase())
+    ? operators.filter(operator => 
+        operator.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        operator.code.toLowerCase().includes(searchTerm.toLowerCase())
       )
     : operators;
 
   const handleCreate = () => {
     setEditingOperator({
       id: '',
-      name: 'Novo Operador',
-      code: 'OP' + Math.floor(Math.random() * 1000).toString().padStart(3, '0'),
+      name: '',
+      code: '',
       password_hash: '',
       is_active: true,
       permissions: {
-        can_discount: true,
-        can_cancel: true,
-        can_manage_products: false
+        can_cancel: false,
+        can_discount: false,
+        can_use_scale: false,
+        can_view_sales: true,
+        can_view_orders: false,
+        can_view_reports: false,
+        can_view_products: true,
+        can_view_operators: false,
+        can_manage_products: false,
+        can_manage_settings: false,
+        can_view_attendance: false,
+        can_view_cash_report: false,
+        can_view_sales_report: false,
+        can_view_cash_register: false,
+        can_view_expected_balance: false
       },
-      created_at: '',
-      updated_at: ''
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     });
     setIsCreating(true);
   };
@@ -74,67 +256,67 @@ const PDVOperators: React.FC = () => {
       return;
     }
 
+    // Verificar se código já existe
+    const existingOperator = operators.find(op => 
+      op.code.toUpperCase() === editingOperator.code.toUpperCase() && op.id !== editingOperator.id
+    );
+    if (existingOperator) {
+      alert('Código já existe. Use um código diferente.');
+      return;
+    }
+
     setSaving(true);
+    
     try {
       if (isCreating) {
-        const { data, error } = await supabase
-          .from('pdv_operators')
-          .insert([{
-            name: editingOperator.name,
-            code: editingOperator.code,
-            password_hash: editingOperator.password_hash,
-            is_active: editingOperator.is_active,
-            permissions: editingOperator.permissions
-          }])
-          .select()
-          .single();
-
-        if (error) throw error;
-        setOperators(prev => [...prev, data]);
+        const { id, created_at, updated_at, ...operatorData } = editingOperator;
+        await createOperator({
+          ...operatorData,
+          code: operatorData.code.toUpperCase()
+        });
       } else {
-        const updates: Partial<PDVOperator> = {
-          name: editingOperator.name,
-          code: editingOperator.code,
-          is_active: editingOperator.is_active,
-          permissions: editingOperator.permissions
-        };
-
-        // Só incluir senha se foi alterada
-        if (editingOperator.password_hash) {
-          updates.password_hash = editingOperator.password_hash;
-        }
-
-        const { data, error } = await supabase
-          .from('pdv_operators')
-          .update(updates)
-          .eq('id', editingOperator.id)
-          .select()
-          .single();
-
-        if (error) throw error;
-        setOperators(prev => prev.map(op => op.id === data.id ? data : op));
+        await updateOperator(editingOperator.id, {
+          ...editingOperator,
+          code: editingOperator.code.toUpperCase()
+        });
       }
       
       setEditingOperator(null);
       setIsCreating(false);
+      
+      // Mostrar feedback de sucesso
+      const successMessage = document.createElement('div');
+      successMessage.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2';
+      successMessage.innerHTML = `
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+        Operador ${isCreating ? 'criado' : 'atualizado'} com sucesso!
+      `;
+      document.body.appendChild(successMessage);
+      
+      setTimeout(() => {
+        if (document.body.contains(successMessage)) {
+          document.body.removeChild(successMessage);
+        }
+      }, 3000);
     } catch (error) {
       console.error('Erro ao salvar operador:', error);
-      alert('Erro ao salvar operador');
+      alert(`Erro ao salvar operador: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: string, name: string) => {
+    if (id === '1' || operators.find(op => op.id === id)?.code === 'ADMIN') {
+      alert('Não é possível excluir o operador administrador');
+      return;
+    }
+
     if (confirm(`Tem certeza que deseja excluir o operador "${name}"?`)) {
       try {
-        const { error } = await supabase
-          .from('pdv_operators')
-          .delete()
-          .eq('id', id);
-
-        if (error) throw error;
-        setOperators(prev => prev.filter(op => op.id !== id));
+        await deleteOperator(id);
       } catch (error) {
         console.error('Erro ao excluir operador:', error);
         alert('Erro ao excluir operador');
@@ -143,51 +325,74 @@ const PDVOperators: React.FC = () => {
   };
 
   const handleToggleActive = async (operator: PDVOperator) => {
-    try {
-      const { data, error } = await supabase
-        .from('pdv_operators')
-        .update({ is_active: !operator.is_active })
-        .eq('id', operator.id)
-        .select()
-        .single();
+    if (operator.code === 'ADMIN') {
+      alert('Não é possível desativar o operador administrador');
+      return;
+    }
 
-      if (error) throw error;
-      setOperators(prev => prev.map(op => op.id === data.id ? data : op));
+    try {
+      await updateOperator(operator.id, { is_active: !operator.is_active });
     } catch (error) {
       console.error('Erro ao alterar status:', error);
       alert('Erro ao alterar status');
     }
   };
 
+  useEffect(() => {
+    fetchOperators();
+  }, []);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
         <span className="ml-2 text-gray-600">Carregando operadores...</span>
       </div>
     );
   }
 
   return (
-    <PermissionGuard hasPermission={hasPermission('can_view_operators')} showMessage={true}>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
-              <Users size={24} className="text-orange-600" />
-              Gerenciar Operadores
-            </h2>
-            <p className="text-gray-600">Configure os operadores do PDV</p>
+    <div className="space-y-6">
+      {/* Supabase Configuration Warning */}
+      {!supabaseConfigured && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+          <div className="flex items-center gap-3">
+            <div className="bg-yellow-100 rounded-full p-2">
+              <AlertCircle size={20} className="text-yellow-600" />
+            </div>
+            <div>
+              <h3 className="font-medium text-yellow-800">Modo Demonstração</h3>
+              <p className="text-yellow-700 text-sm">
+                Supabase não configurado. Funcionalidades limitadas.
+              </p>
+            </div>
           </div>
-          <button
-            onClick={handleCreate}
-            className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
-          >
-            <Plus size={20} />
-            Novo Operador
-          </button>
         </div>
+      )}
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
+            <Users size={24} className="text-blue-600" />
+            Gerenciar Operadores - Loja 1
+          </h2>
+          <p className="text-gray-600">Configure operadores e suas permissões do PDV</p>
+        </div>
+        <button
+          onClick={handleCreate}
+          className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+        >
+          <Plus size={20} />
+          Novo Operador
+        </button>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-600">{error}</p>
+        </div>
+      )}
 
       {/* Search */}
       <div className="bg-white rounded-xl shadow-sm p-4">
@@ -198,7 +403,7 @@ const PDVOperators: React.FC = () => {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Buscar operadores..."
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
       </div>
@@ -209,10 +414,11 @@ const PDVOperators: React.FC = () => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
+                <th className="text-left py-3 px-4 font-medium text-gray-700">Operador</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-700">Código</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-700">Nome</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-700">Permissões</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-700">Status</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-700">Último Acesso</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-700">Ações</th>
               </tr>
             </thead>
@@ -220,43 +426,54 @@ const PDVOperators: React.FC = () => {
               {filteredOperators.map((operator) => (
                 <tr key={operator.id} className="hover:bg-gray-50">
                   <td className="py-4 px-4">
-                    <span className="font-mono text-sm">{operator.code}</span>
+                    <div className="flex items-center gap-2">
+                      <User size={16} className="text-gray-400" />
+                      <span className="font-medium text-gray-800">{operator.name}</span>
+                    </div>
                   </td>
                   <td className="py-4 px-4">
-                    <div className="font-medium text-gray-800">{operator.name}</div>
+                    <span className="font-mono text-sm bg-gray-100 px-2 py-1 rounded">
+                      {operator.code}
+                    </span>
                   </td>
                   <td className="py-4 px-4">
-                    <div className="space-y-1">
-                      <div className={`text-xs px-2 py-1 rounded-full inline-block ${
-                        operator.permissions.can_discount ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {operator.permissions.can_discount ? 'Pode dar desconto' : 'Sem desconto'}
-                      </div>
-                      <div className={`text-xs px-2 py-1 rounded-full inline-block ml-1 ${
-                        operator.permissions.can_cancel ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {operator.permissions.can_cancel ? 'Pode cancelar' : 'Sem cancelamento'}
-                      </div>
-                      <div className={`text-xs px-2 py-1 rounded-full inline-block ml-1 ${
-                        operator.permissions.can_manage_products ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {operator.permissions.can_manage_products ? 'Gerencia produtos' : 'Sem gestão de produtos'}
-                      </div>
-                      <div className={`text-xs px-2 py-1 rounded-full inline-block ml-1 ${
-                        operator.permissions.can_view_cash_register ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {operator.permissions.can_view_cash_register ? 'Acesso ao Caixa' : 'Sem acesso ao Caixa'}
-                      </div>
+                    <div className="flex flex-wrap gap-1">
+                      {operator.permissions?.can_view_sales && (
+                        <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                          Vendas
+                        </span>
+                      )}
+                      {operator.permissions?.can_view_cash_register && (
+                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                          Caixa
+                        </span>
+                      )}
+                      {operator.permissions?.can_discount && (
+                        <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded-full">
+                          Desconto
+                        </span>
+                      )}
+                      {operator.permissions?.can_cancel && (
+                        <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full">
+                          Cancelar
+                        </span>
+                      )}
+                      {operator.code === 'ADMIN' && (
+                        <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
+                          Admin
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="py-4 px-4">
                     <button
                       onClick={() => handleToggleActive(operator)}
+                      disabled={operator.code === 'ADMIN'}
                       className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-colors ${
                         operator.is_active
                           ? 'bg-green-100 text-green-800 hover:bg-green-200'
                           : 'bg-red-100 text-red-800 hover:bg-red-200'
-                      }`}
+                      } ${operator.code === 'ADMIN' ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       {operator.is_active ? (
                         <>
@@ -272,23 +489,28 @@ const PDVOperators: React.FC = () => {
                     </button>
                   </td>
                   <td className="py-4 px-4">
+                    <span className="text-sm text-gray-500">
+                      {operator.last_login 
+                        ? new Date(operator.last_login).toLocaleDateString('pt-BR')
+                        : 'Nunca'
+                      }
+                    </span>
+                  </td>
+                  <td className="py-4 px-4">
                     <div className="flex items-center gap-2">
                       <button
-                        disabled={operator.code === 'ADMIN'}
                         onClick={() => {
-                          setEditingOperator({...operator, password_hash: ''});
+                          setEditingOperator(operator);
                           setIsCreating(false);
                         }}
-                        className={`p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors ${
-                          operator.code === 'ADMIN' ? 'opacity-50 cursor-not-allowed' : ''
-                        }`}
+                        className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
                         title="Editar operador"
                       >
                         <Edit3 size={16} />
                       </button>
                       <button
-                        disabled={operator.code === 'ADMIN'}
                         onClick={() => handleDelete(operator.id, operator.name)}
+                        disabled={operator.code === 'ADMIN'}
                         className={`p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors ${
                           operator.code === 'ADMIN' ? 'opacity-50 cursor-not-allowed' : ''
                         }`}
@@ -317,17 +539,29 @@ const PDVOperators: React.FC = () => {
       {/* Edit/Create Modal */}
       {editingOperator && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-800">
-                {isCreating ? 'Novo Operador' : 'Editar Operador'}
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-800">
+                  {isCreating ? 'Novo Operador' : 'Editar Operador'}
+                </h2>
+                <button
+                  onClick={() => {
+                    setEditingOperator(null);
+                    setIsCreating(false);
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
-            <div className="p-6 space-y-4 overflow-y-auto">
+            <div className="p-6 space-y-4">
+              {/* Nome */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nome *
+                  Nome do Operador *
                 </label>
                 <input
                   type="text"
@@ -336,27 +570,29 @@ const PDVOperators: React.FC = () => {
                     ...editingOperator,
                     name: e.target.value
                   })}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  placeholder="Nome do operador"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Ex: João Silva"
                 />
               </div>
 
+              {/* Código */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Código *
+                  Código de Acesso *
                 </label>
                 <input
                   type="text"
                   value={editingOperator.code}
                   onChange={(e) => setEditingOperator({
                     ...editingOperator,
-                    code: e.target.value
+                    code: e.target.value.toUpperCase()
                   })}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Ex: OP001"
                 />
               </div>
 
+              {/* Senha */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Senha {isCreating ? '*' : '(deixe em branco para manter a atual)'}
@@ -370,21 +606,55 @@ const PDVOperators: React.FC = () => {
                       ...editingOperator,
                       password_hash: e.target.value
                     })}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder={isCreating ? "Senha" : "Nova senha (opcional)"}
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Permissões Básicas
+              {/* Permissões */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Permissões do Sistema
                 </label>
-                <div className="space-y-2">
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={editingOperator.permissions.can_discount}
+                      checked={editingOperator.permissions?.can_view_sales || false}
+                      onChange={(e) => setEditingOperator({
+                        ...editingOperator,
+                        permissions: {
+                          ...editingOperator.permissions,
+                          can_view_sales: e.target.checked
+                        }
+                      })}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span className="text-sm text-gray-700">Visualizar vendas</span>
+                  </label>
+                  
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={editingOperator.permissions?.can_view_cash_register || false}
+                      onChange={(e) => setEditingOperator({
+                        ...editingOperator,
+                        permissions: {
+                          ...editingOperator.permissions,
+                          can_view_cash_register: e.target.checked
+                        }
+                      })}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span className="text-sm text-gray-700">Acessar caixa</span>
+                  </label>
+                  
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={editingOperator.permissions?.can_discount || false}
                       onChange={(e) => setEditingOperator({
                         ...editingOperator,
                         permissions: {
@@ -392,17 +662,15 @@ const PDVOperators: React.FC = () => {
                           can_discount: e.target.checked
                         }
                       })}
-                      className="w-4 h-4 text-orange-600"
+                      className="w-4 h-4 text-blue-600"
                     />
-                    <span className="text-sm text-gray-700">
-                      Pode aplicar descontos
-                    </span>
+                    <span className="text-sm text-gray-700">Aplicar descontos</span>
                   </label>
                   
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={editingOperator.permissions.can_cancel}
+                      checked={editingOperator.permissions?.can_cancel || false}
                       onChange={(e) => setEditingOperator({
                         ...editingOperator,
                         permissions: {
@@ -410,17 +678,47 @@ const PDVOperators: React.FC = () => {
                           can_cancel: e.target.checked
                         }
                       })}
-                      className="w-4 h-4 text-orange-600"
+                      className="w-4 h-4 text-blue-600"
                     />
-                    <span className="text-sm text-gray-700">
-                      Pode cancelar vendas
-                    </span>
+                    <span className="text-sm text-gray-700">Cancelar vendas</span>
                   </label>
                   
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={editingOperator.permissions.can_manage_products}
+                      checked={editingOperator.permissions?.can_use_scale || false}
+                      onChange={(e) => setEditingOperator({
+                        ...editingOperator,
+                        permissions: {
+                          ...editingOperator.permissions,
+                          can_use_scale: e.target.checked
+                        }
+                      })}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span className="text-sm text-gray-700">Usar balança</span>
+                  </label>
+                  
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={editingOperator.permissions?.can_view_reports || false}
+                      onChange={(e) => setEditingOperator({
+                        ...editingOperator,
+                        permissions: {
+                          ...editingOperator.permissions,
+                          can_view_reports: e.target.checked
+                        }
+                      })}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span className="text-sm text-gray-700">Ver relatórios</span>
+                  </label>
+                  
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={editingOperator.permissions?.can_manage_products || false}
                       onChange={(e) => setEditingOperator({
                         ...editingOperator,
                         permissions: {
@@ -428,256 +726,30 @@ const PDVOperators: React.FC = () => {
                           can_manage_products: e.target.checked
                         }
                       })}
-                      className="w-4 h-4 text-orange-600"
+                      className="w-4 h-4 text-blue-600"
                     />
-                    <span className="text-sm text-gray-700">
-                      Pode gerenciar produtos
-                    </span>
+                    <span className="text-sm text-gray-700">Gerenciar produtos</span>
+                  </label>
+                  
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={editingOperator.permissions?.can_view_operators || false}
+                      onChange={(e) => setEditingOperator({
+                        ...editingOperator,
+                        permissions: {
+                          ...editingOperator.permissions,
+                          can_view_operators: e.target.checked
+                        }
+                      })}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span className="text-sm text-gray-700">Ver operadores</span>
                   </label>
                 </div>
               </div>
-              
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Permissões de Acesso aos Menus
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Operações */}
-                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                    <h4 className="font-medium text-gray-700 mb-2 text-sm">Operações</h4>
-                    <div className="space-y-2">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={editingOperator.permissions.can_view_sales ?? true}
-                          onChange={(e) => setEditingOperator({
-                            ...editingOperator,
-                            permissions: {
-                              ...editingOperator.permissions,
-                              can_view_sales: e.target.checked
-                            }
-                          })}
-                          className="w-4 h-4 text-orange-600"
-                        />
-                        <span className="text-sm text-gray-700">
-                          Vendas
-                        </span>
-                      </label>
-                      
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={editingOperator.permissions.can_view_cash_register ?? true}
-                          onChange={(e) => setEditingOperator({
-                            ...editingOperator,
-                            permissions: {
-                              ...editingOperator.permissions,
-                              can_view_cash_register: e.target.checked
-                            }
-                          })}
-                          className="w-4 h-4 text-orange-600"
-                        />
-                        <span className="text-sm text-gray-700">
-                          Caixas
-                        </span>
-                      </label>
-                      
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={editingOperator.permissions.can_view_products ?? true}
-                          onChange={(e) => setEditingOperator({
-                            ...editingOperator,
-                            permissions: {
-                              ...editingOperator.permissions,
-                              can_view_products: e.target.checked
-                            }
-                          })}
-                          className="w-4 h-4 text-orange-600"
-                        />
-                        <span className="text-sm text-gray-700">
-                          Produtos
-                        </span>
-                      </label>
-                      
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={editingOperator.permissions.can_view_orders ?? true}
-                          onChange={(e) => setEditingOperator({
-                            ...editingOperator,
-                            permissions: {
-                              ...editingOperator.permissions,
-                              can_view_orders: e.target.checked
-                            }
-                          })}
-                          className="w-4 h-4 text-orange-600"
-                        />
-                        <span className="text-sm text-gray-700">
-                          Pedidos
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-                  
-                  {/* Relatórios */}
-                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                    <h4 className="font-medium text-gray-700 mb-2 text-sm">Relatórios</h4>
-                    <div className="space-y-2">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={editingOperator.permissions.can_view_reports ?? true}
-                          onChange={(e) => setEditingOperator({
-                            ...editingOperator,
-                            permissions: {
-                              ...editingOperator.permissions,
-                              can_view_reports: e.target.checked
-                            }
-                          })}
-                          className="w-4 h-4 text-orange-600"
-                        />
-                        <span className="text-sm text-gray-700">
-                          Gráficos
-                        </span>
-                      </label>
-                      
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={editingOperator.permissions.can_view_sales_report ?? true}
-                          onChange={(e) => setEditingOperator({
-                            ...editingOperator,
-                            permissions: {
-                              ...editingOperator.permissions,
-                              can_view_sales_report: e.target.checked
-                            }
-                          })}
-                          className="w-4 h-4 text-orange-600"
-                        />
-                        <span className="text-sm text-gray-700">
-                          Vendas
-                        </span>
-                      </label>
-                      
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={editingOperator.permissions.can_view_cash_report ?? true}
-                          onChange={(e) => setEditingOperator({
-                            ...editingOperator,
-                            permissions: {
-                              ...editingOperator.permissions,
-                              can_view_cash_report: e.target.checked
-                            }
-                          })}
-                          className="w-4 h-4 text-orange-600"
-                        />
-                        <span className="text-sm text-gray-700">
-                          Caixa Diário
-                        </span>
-                      </label>
-                      
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={editingOperator.permissions.can_view_operators ?? false}
-                          onChange={(e) => setEditingOperator({
-                            ...editingOperator,
-                            permissions: {
-                              ...editingOperator.permissions,
-                              can_view_operators: e.target.checked
-                            }
-                          })}
-                          className="w-4 h-4 text-orange-600"
-                        />
-                        <span className="text-sm text-gray-700">
-                          Operadores
-                        </span>
-                      </label>
-                      
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={editingOperator.permissions.can_view_cash_report ?? true}
-                          onChange={(e) => setEditingOperator({
-                            ...editingOperator,
-                            permissions: {
-                              ...editingOperator.permissions,
-                              can_view_cash_report: e.target.checked
-                            }
-                          })}
-                          className="w-4 h-4 text-orange-600"
-                        />
-                        <span className="text-sm text-gray-700">
-                          Caixa por Período
-                        </span>
-                      </label>
-                      
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={editingOperator.permissions.can_view_cash_report ?? true}
-                          onChange={(e) => setEditingOperator({
-                            ...editingOperator,
-                            permissions: {
-                              ...editingOperator.permissions,
-                              can_view_cash_report: e.target.checked
-                            }
-                          })}
-                          className="w-4 h-4 text-orange-600"
-                        />
-                        <span className="text-sm text-gray-700">
-                          Histórico de Caixas
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-                  
-                  {/* Gerenciamento */}
-                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                    <h4 className="font-medium text-gray-700 mb-2 text-sm">Gerenciamento</h4>
-                    <div className="space-y-2">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={editingOperator.permissions.can_view_operators ?? false}
-                          onChange={(e) => setEditingOperator({
-                            ...editingOperator,
-                            permissions: {
-                              ...editingOperator.permissions,
-                              can_view_operators: e.target.checked
-                            }
-                          })}
-                          className="w-4 h-4 text-orange-600"
-                        />
-                        <span className="text-sm text-gray-700">
-                          Operadores
-                        </span>
-                      </label>
-                      
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={editingOperator.permissions.can_manage_products ?? false}
-                          onChange={(e) => setEditingOperator({
-                            ...editingOperator,
-                            permissions: {
-                              ...editingOperator.permissions,
-                              can_manage_products: e.target.checked
-                            }
-                          })}
-                          className="w-4 h-4 text-orange-600"
-                        />
-                        <span className="text-sm text-gray-700">
-                          Configurações
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
 
+              {/* Status Ativo */}
               <div>
                 <label className="flex items-center gap-2">
                   <input
@@ -687,7 +759,7 @@ const PDVOperators: React.FC = () => {
                       ...editingOperator,
                       is_active: e.target.checked
                     })}
-                    className="w-4 h-4 text-orange-600"
+                    className="w-4 h-4 text-blue-600"
                   />
                   <span className="text-sm font-medium text-gray-700">
                     Operador ativo
@@ -696,7 +768,7 @@ const PDVOperators: React.FC = () => {
               </div>
             </div>
 
-            <div className="p-6 border-t border-gray-200 flex justify-end gap-3 sticky bottom-0 bg-white">
+            <div className="p-6 border-t border-gray-200 flex justify-end gap-3">
               <button
                 onClick={() => {
                   setEditingOperator(null);
@@ -709,7 +781,7 @@ const PDVOperators: React.FC = () => {
               <button
                 onClick={handleSave}
                 disabled={saving || !editingOperator.name.trim() || !editingOperator.code.trim()}
-                className="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white rounded-lg transition-colors flex items-center gap-2"
+                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white rounded-lg transition-colors flex items-center gap-2"
               >
                 {saving ? (
                   <>
@@ -728,7 +800,6 @@ const PDVOperators: React.FC = () => {
         </div>
       )}
     </div>
-    </PermissionGuard>
   );
 };
 

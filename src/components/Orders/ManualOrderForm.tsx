@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useOrders } from '../../hooks/useOrders';
+import { usePDVCashRegister } from '../../hooks/usePDVCashRegister';
 import { useNeighborhoods } from '../../hooks/useNeighborhoods';
 import { products } from '../../data/products';
 import { 
@@ -14,7 +15,8 @@ import {
   Save,
   ShoppingBag,
   Search,
-  X
+  X,
+  AlertCircle
 } from 'lucide-react';
 
 interface ManualOrderFormProps {
@@ -24,6 +26,7 @@ interface ManualOrderFormProps {
 
 const ManualOrderForm: React.FC<ManualOrderFormProps> = ({ onClose, onOrderCreated }) => {
   const { createOrder } = useOrders();
+  const { isOpen: isCashRegisterOpen, currentRegister } = usePDVCashRegister();
   const { neighborhoods } = useNeighborhoods();
   
   const [customerName, setCustomerName] = useState('');
@@ -564,7 +567,7 @@ const ManualOrderForm: React.FC<ManualOrderFormProps> = ({ onClose, onOrderCreat
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || items.length === 0}
+              disabled={isSubmitting || items.length === 0 || !isCashRegisterOpen}
               className="px-6 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white rounded-lg transition-colors flex items-center gap-2"
             >
               {isSubmitting ? (
@@ -579,6 +582,14 @@ const ManualOrderForm: React.FC<ManualOrderFormProps> = ({ onClose, onOrderCreat
                 </>
               )}
             </button>
+            {!isCashRegisterOpen && (
+              <div className="absolute bottom-20 right-6 bg-red-100 text-red-700 px-4 py-2 rounded-lg text-sm">
+                <div className="flex items-center gap-2">
+                  <AlertCircle size={16} />
+                  <span>Não é possível criar pedidos sem um caixa aberto</span>
+                </div>
+              </div>
+            )}
           </div>
         </form>
       </div>

@@ -10,6 +10,77 @@ export const usePDVProducts = () => {
   const fetchProducts = useCallback(async () => {
     try {
       setLoading(true);
+      
+      // Check if Supabase is properly configured
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      
+      if (!supabaseUrl || !supabaseKey || 
+          supabaseUrl === 'your_supabase_url_here' || 
+          supabaseKey === 'your_supabase_anon_key_here' ||
+          supabaseUrl.includes('placeholder')) {
+        console.warn('⚠️ Supabase não configurado - usando produtos de demonstração');
+        
+        // Produtos de demonstração para quando Supabase não estiver configurado
+        const demoProducts: PDVProduct[] = [
+          {
+            id: 'demo-acai-300',
+            code: 'ACAI300',
+            name: 'Açaí 300ml',
+            category: 'acai',
+            is_weighable: false,
+            unit_price: 15.90,
+            price_per_gram: undefined,
+            image_url: 'https://images.pexels.com/photos/1092730/pexels-photo-1092730.jpeg?auto=compress&cs=tinysrgb&w=400',
+            stock_quantity: 100,
+            min_stock: 10,
+            is_active: true,
+            barcode: '',
+            description: 'Açaí tradicional 300ml',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          },
+          {
+            id: 'demo-acai-500',
+            code: 'ACAI500',
+            name: 'Açaí 500ml',
+            category: 'acai',
+            is_weighable: false,
+            unit_price: 22.90,
+            price_per_gram: undefined,
+            image_url: 'https://images.pexels.com/photos/1092730/pexels-photo-1092730.jpeg?auto=compress&cs=tinysrgb&w=400',
+            stock_quantity: 100,
+            min_stock: 10,
+            is_active: true,
+            barcode: '',
+            description: 'Açaí tradicional 500ml',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          },
+          {
+            id: 'demo-acai-1kg',
+            code: 'ACAI1KG',
+            name: 'Açaí 1kg (Pesável)',
+            category: 'acai',
+            is_weighable: true,
+            unit_price: undefined,
+            price_per_gram: 0.04499,
+            image_url: 'https://images.pexels.com/photos/1092730/pexels-photo-1092730.jpeg?auto=compress&cs=tinysrgb&w=400',
+            stock_quantity: 50,
+            min_stock: 5,
+            is_active: true,
+            barcode: '',
+            description: 'Açaí tradicional vendido por peso',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        ];
+        
+        setProducts(demoProducts);
+        setLoading(false);
+        return;
+      }
+      
       const { data, error } = await supabase
         .from('pdv_products')
         .select('*')
@@ -19,7 +90,12 @@ export const usePDVProducts = () => {
       if (error) throw error;
       setProducts(data || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar produtos');
+      const errorMessage = err instanceof Error ? err.message : 'Erro ao carregar produtos';
+      console.error('Erro ao carregar produtos:', errorMessage);
+      setError(errorMessage);
+      
+      // Set empty products array on error
+      setProducts([]);
     } finally {
       setLoading(false);
     }
@@ -27,6 +103,12 @@ export const usePDVProducts = () => {
 
   const createProduct = useCallback(async (product: Omit<PDVProduct, 'id' | 'created_at' | 'updated_at'>) => {
     try {
+      // Check if Supabase is configured
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      if (!supabaseUrl || supabaseUrl.includes('placeholder')) {
+        throw new Error('Supabase não configurado. Configure as variáveis de ambiente para usar esta funcionalidade.');
+      }
+      
       console.log('🚀 Iniciando criação do produto:', product);
       
       // Remover o ID se estiver presente (pode acontecer se o objeto for passado completo)
@@ -94,6 +176,9 @@ export const usePDVProducts = () => {
     );
   }, [products]);
 
+  const getActiveProducts = useCallback(() => {
+    return products.filter(product => product.is_active);
+  }, [products]);
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts]);
@@ -106,6 +191,7 @@ export const usePDVProducts = () => {
     updateProduct,
     deleteProduct,
     searchProducts,
+    getActiveProducts,
     refetch: fetchProducts
   };
 };
@@ -122,6 +208,12 @@ export const usePDVSales = () => {
     useRpc: boolean = true
   ) => {
     try {
+      // Check if Supabase is configured
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      if (!supabaseUrl || supabaseUrl.includes('placeholder')) {
+        throw new Error('Supabase não configurado. Configure as variáveis de ambiente para usar esta funcionalidade.');
+      }
+      
       setLoading(true);
 
       // Set channel to pdv if not specified
@@ -269,6 +361,23 @@ export const usePDVSales = () => {
 export const usePDVCart = () => {
   const [items, setItems] = useState<PDVCartItem[]>([]);
   const [discount, setDiscount] = useState({ type: 'none' as 'none' | 'percentage' | 'amount', value: 0 });
+  const [paymentInfo, setPaymentInfo] = useState<{
+    method: 'dinheiro' | 'pix' | 'cartao_credito' | 'cartao_debito' | 'voucher' | 'misto';
+    changeFor?: number;
+    customerName?: string;
+    customerPhone?: string;
+  }>({
+    method: 'dinheiro'
+  });
+  const [splitInfo, setSplitInfo] = useState<{
+    enabled: boolean;
+    parts: number;
+    amounts: number[];
+  }>({
+    enabled: false,
+    parts: 2,
+    amounts: []
+  });
 
   const addItem = useCallback((product: PDVProduct, quantity: number = 1, weight?: number) => {
     const existingIndex = items.findIndex(item => item.product.id === product.id);
@@ -352,6 +461,8 @@ export const usePDVCart = () => {
   const clearCart = useCallback(() => {
     setItems([]);
     setDiscount({ type: 'none', value: 0 });
+    setPaymentInfo({ method: 'dinheiro' });
+    setSplitInfo({ enabled: false, parts: 2, amounts: [] });
   }, []);
 
   const getSubtotal = useCallback(() => {
@@ -372,15 +483,26 @@ export const usePDVCart = () => {
     return Math.max(0, getSubtotal() - getDiscountAmount());
   }, [getSubtotal, getDiscountAmount]);
 
+  const updatePaymentInfo = useCallback((info: Partial<typeof paymentInfo>) => {
+    setPaymentInfo(prev => ({ ...prev, ...info }));
+  }, []);
+
+  const updateSplitInfo = useCallback((info: Partial<typeof splitInfo>) => {
+    setSplitInfo(prev => ({ ...prev, ...info }));
+  }, []);
   return {
     items,
     discount,
+    paymentInfo,
+    splitInfo,
     addItem,
     removeItem,
     updateItemQuantity,
     updateItemWeight,
     applyItemDiscount,
     setDiscount,
+    updatePaymentInfo,
+    updateSplitInfo,
     clearCart,
     getSubtotal,
     getDiscountAmount,

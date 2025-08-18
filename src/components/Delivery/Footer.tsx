@@ -23,7 +23,7 @@ const Footer: React.FC<FooterProps> = ({ storeSettings }) => {
                   <div className="w-2 h-2 bg-green-400 rounded-full"></div>
                   <span className="font-medium text-white">🏡 Loja 1</span>
                 </div>
-                <p className="text-sm">Rua Dois, 2130‑A – Residencial 1 – Cágado</p>
+                <p className="text-sm">Rua Um, 1614‑C – Residencial 1 – Cágado</p>
                 <p className="text-sm font-medium text-green-400">🕐 17h às 23h</p>
               </div>
               
@@ -32,7 +32,7 @@ const Footer: React.FC<FooterProps> = ({ storeSettings }) => {
                   <div className="w-2 h-2 bg-green-400 rounded-full"></div>
                   <span className="font-medium text-white">🏡 Loja 2</span>
                 </div>
-                <p className="text-sm">Rua Um, 1614‑C – Residencial 1 – Cágado</p>
+                <p className="text-sm">Rua Dois, 2130‑A – Residencial 1 – Cágado</p>
                 <p className="text-sm font-medium text-green-400">🕐 Aberta das 16h às 23h</p>
               </div>
             </div>
@@ -47,13 +47,13 @@ const Footer: React.FC<FooterProps> = ({ storeSettings }) => {
             <div className="space-y-4 text-gray-300">
               <div>
                 <p className="font-medium text-white mb-1">Loja 1</p>
-                <p className="text-sm">Rua Dois, 2130‑A</p>
+                <p className="text-sm">Rua Um, 1614‑C</p>
                 <p className="text-sm">Residencial 1 - Cágado</p>
                 <p className="text-sm text-green-400">17h às 23h</p>
               </div>
               <div>
                 <p className="font-medium text-white mb-1">Loja 2</p>
-                <p className="text-sm">Rua Um, 1614‑C</p>
+                <p className="text-sm">Rua Dois, 2130‑A</p>
                 <p className="text-sm">Residencial 1 - Cágado</p>
                 <p className="text-sm text-green-400">16h às 23h</p>
               </div>
@@ -70,7 +70,7 @@ const Footer: React.FC<FooterProps> = ({ storeSettings }) => {
               <div>
                 <p className="font-medium text-white mb-2">Central de Atendimento</p>
                 <p className="text-lg font-bold text-green-400">(85) 98904-1010</p>
-                <p className="text-sm text-gray-300">CNPJ: {storeSettings?.cnpj || '00.000.000/0001-00'}</p>
+                <p className="text-sm text-gray-300">CNPJ: {storeSettings?.cnpj || '38.130.139/0001-22'}</p>
                 <p className="text-sm">WhatsApp e Ligações</p>
               </div>
               
@@ -102,9 +102,9 @@ const Footer: React.FC<FooterProps> = ({ storeSettings }) => {
         </div>
         
         <div className="border-t border-gray-700 mt-8 pt-8 text-center text-gray-400">
-          <p>&copy; 2024 Elite Açaí. Todos os direitos reservados.</p>
-          <p className="text-sm mt-1">CNPJ: {storeSettings?.cnpj || '00.000.000/0001-00'}</p>
-          <p className="text-sm mt-2">Delivery disponível nas duas lojas • Açaí fresquinho direto na sua casa</p>
+          <p>&copy; 2025 Elite Açaí. Todos os direitos reservados.</p>
+          <p className="text-sm mt-1">CNPJ: {storeSettings?.cnpj || '38.130.139/0001-22'}</p>
+          <p className="text-sm mt-2">Delivery disponível apenas na loja 1 • Açaí fresquinho direto na sua casa</p>
         </div>
       </div>
     </footer>

@@ -16,9 +16,13 @@ import {
   Check,
   RefreshCw,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  AlertCircle
 } from 'lucide-react';
 import CashRegisterDetails from './CashRegisterDetails';
+import CashRegisterCloseConfirmation from './CashRegisterCloseConfirmation';
+import CashRegisterCloseDialog from './CashRegisterCloseDialog';
+import CashRegisterPrintView from './CashRegisterPrintView';
 
 const CashRegisterMenu: React.FC = () => {
   const { hasPermission } = usePermissions();
@@ -35,6 +39,7 @@ const CashRegisterMenu: React.FC = () => {
     refreshData
   } = usePDVCashRegister();
 
+  const [supabaseConfigured, setSupabaseConfigured] = useState(true);
   const [showOpenRegister, setShowOpenRegister] = useState(false);
   const [showCloseRegister, setShowCloseRegister] = useState(false);
   const [showCashEntry, setShowCashEntry] = useState(false);
@@ -45,6 +50,24 @@ const CashRegisterMenu: React.FC = () => {
   const [entryAmount, setEntryAmount] = useState('');
   const [entryDescription, setEntryDescription] = useState('');
   const [entryPaymentMethod, setEntryPaymentMethod] = useState('dinheiro');
+  const [showCloseConfirmation, setShowCloseConfirmation] = useState(false);
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
+  const [showPrintView, setShowPrintView] = useState(false);
+  const [closedRegister, setClosedRegister] = useState<any>(null);
+  const [isClosing, setIsClosing] = useState(false);
+  
+  // Check Supabase configuration on mount
+  React.useEffect(() => {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    
+    const isConfigured = supabaseUrl && supabaseKey && 
+                        supabaseUrl !== 'your_supabase_url_here' && 
+                        supabaseKey !== 'your_supabase_anon_key_here' &&
+                        !supabaseUrl.includes('placeholder');
+    
+    setSupabaseConfigured(isConfigured);
+  }, []);
 
   const [billCounts, setBillCounts] = useState({
     '200': 0,
@@ -98,20 +121,40 @@ const CashRegisterMenu: React.FC = () => {
   };
 
   const handleCloseRegister = async () => {
-    if (!closingAmount) return;
-    
-    console.log('🔒 Fechando caixa com valor:', {
-      closingAmount: parseFloat(closingAmount),
-      expectedBalance: summary.expected_balance,
-      difference: parseFloat(closingAmount) - summary.expected_balance
-    });
+    setShowCloseConfirmation(true);
+  };
+
+  const handleConfirmClose = async (closingAmount: number, shouldPrint: boolean = false) => {
+    setIsClosing(true);
+    setShowCloseConfirmation(false);
     
     try {
-      await closeCashRegister(parseFloat(closingAmount));
-      setShowCloseRegister(false);
-      setClosingAmount('');
+      console.log('🔒 Fechando caixa com valor:', closingAmount);
+      console.log('📊 Summary antes do fechamento:', summary);
+      const result = await closeCashRegister(closingAmount);
+      
+      if (result.success) {
+        // Criar objeto do caixa fechado com todos os dados necessários
+        setClosedRegister({
+          ...currentRegister,
+          closing_amount: closingAmount,
+          closed_at: new Date().toISOString(),
+          difference: closingAmount - (summary?.expected_balance || 0)
+        });
+        
+        if (shouldPrint) {
+          setShowPrintView(true);
+        } else {
+          setShowCloseDialog(true);
+        }
+      } else {
+        alert(`Erro ao fechar caixa: ${result.error}`);
+      }
     } catch (err) {
       console.error('Erro ao fechar caixa:', err);
+      alert('Erro ao fechar caixa. Tente novamente.');
+    } finally {
+      setIsClosing(false);
     }
   };
 
@@ -189,6 +232,24 @@ const CashRegisterMenu: React.FC = () => {
   return (
     <PermissionGuard hasPermission={hasPermission('can_view_cash_register') || hasPermission('can_view_cash_report')} showMessage={true}>
       <div className="space-y-6">
+        {/* Supabase Configuration Warning */}
+        {!supabaseConfigured && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-red-100 rounded-full p-2">
+                <AlertCircle size={20} className="text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-medium text-red-800">Funcionalidade de Caixa Indisponível</h3>
+                <p className="text-red-700 text-sm">
+                  O sistema de caixa requer configuração do Supabase. Configure as variáveis de ambiente 
+                  VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para usar esta funcionalidade.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -211,7 +272,7 @@ const CashRegisterMenu: React.FC = () => {
             
             {isOpen && (
               <button
-                onClick={() => setShowCloseRegister(true)}
+                onClick={handleCloseRegister}
                 className="flex items-center gap-2 bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg transition-colors text-sm"
               >
                 <Clock size={16} />
@@ -281,6 +342,7 @@ const CashRegisterMenu: React.FC = () => {
         {!isOpen && (
           <button
             onClick={() => setShowOpenRegister(true)}
+            disabled={!supabaseConfigured}
             className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors"
           >
             <Plus size={18} />
@@ -288,7 +350,7 @@ const CashRegisterMenu: React.FC = () => {
           </button>
         )}
 
-        {isOpen && (
+        {isOpen && supabaseConfigured && (
           <>
             <button
               onClick={() => setShowCashEntry(true)}
@@ -308,17 +370,47 @@ const CashRegisterMenu: React.FC = () => {
               <ArrowUpCircle size={18} />
               Adicionar Saída
             </button>
-
-            <button
-              onClick={() => window.location.href = '/pdv/app?screen=daily_cash_report'}
-              className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors"
-            >
-              <FileText size={18} />
-              Relatório Diário
-            </button>
           </>
         )}
       </div>
+
+      {/* Close Confirmation Modal */}
+      <CashRegisterCloseConfirmation
+        isOpen={showCloseConfirmation}
+        onClose={() => setShowCloseConfirmation(false)}
+        onConfirm={handleConfirmClose}
+        register={currentRegister}
+        summary={summary}
+        isProcessing={isClosing}
+      />
+
+      {/* Close Success Dialog */}
+      <CashRegisterCloseDialog
+        isOpen={showCloseDialog}
+        onClose={() => setShowCloseDialog(false)}
+        onCloseAll={() => {
+          setShowCloseDialog(false);
+          setShowPrintView(false);
+          setClosedRegister(null);
+        }}
+        register={closedRegister}
+        summary={summary}
+        onPrint={() => setShowPrintView(true)}
+        onViewDailyReport={() => {
+          localStorage.setItem('pdv_active_screen', 'daily_cash_report');
+          window.location.href = '/pdv/app?screen=daily_cash_report';
+        }}
+      />
+
+      {/* Print View Modal */}
+      {showPrintView && closedRegister && (
+        <CashRegisterPrintView
+          register={closedRegister}
+          summary={summary}
+          entries={entries}
+          onClose={() => setShowPrintView(false)}
+        />
+      )}
 
       {/* Cash Register Details */}
       {currentRegister && (
@@ -363,7 +455,9 @@ const CashRegisterMenu: React.FC = () => {
                         </div>
                       </td>
                       <td className="py-4 px-4">
-                        <span className="text-sm text-gray-800">{entry.description}</span>
+                        <div className="text-sm text-gray-800">
+                          <div className="font-medium">{entry.description}</div>
+                        </div>
                       </td>
                       <td className="py-4 px-4">
                         <span className="text-sm text-gray-600">{getPaymentMethodName(entry.payment_method)}</span>
@@ -442,155 +536,6 @@ const CashRegisterMenu: React.FC = () => {
                   className="flex-1 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg transition-colors"
                 >
                   Abrir Caixa
-                </button>
-              </div>
-            </div>
-
-            {/* Bill Counting Modal */}
-            {showBillCounting && (
-              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
-                <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold">Contagem de Cédulas</h3>
-                    <button
-                      onClick={() => setShowBillCounting(false)}
-                      className="text-gray-400 hover:text-gray-600"
-                    >
-                      <X size={20} />
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      {billValues.map((bill) => (
-                        <div key={bill.value} className={`flex items-center justify-between p-3 rounded-lg ${bill.color}`}>
-                          <span className="font-medium">{bill.label}</span>
-                          <div className="flex items-center gap-3">
-                            <button
-                              onClick={() => updateBillCount(bill.value, false)}
-                              className="p-1 rounded-full bg-white hover:bg-gray-100 transition-colors"
-                            >
-                              <Minus size={16} />
-                            </button>
-                            <span className="w-12 text-center font-semibold">
-                              {billCounts[bill.value]}
-                            </span>
-                            <button
-                              onClick={() => updateBillCount(bill.value, true)}
-                              className="p-1 rounded-full bg-white hover:bg-gray-100 transition-colors"
-                            >
-                              <Plus size={16} />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="border-t pt-4 mt-4">
-                      <div className="flex justify-between items-center text-lg font-semibold">
-                        <span>Total:</span>
-                        <span>R$ {calculateBillTotal().toFixed(2)}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button
-                        onClick={resetBillCounts}
-                        className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                      >
-                        Limpar
-                      </button>
-                      <button
-                        onClick={() => setShowBillCounting(false)}
-                        className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        onClick={applyBillTotal}
-                        className="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors"
-                      >
-                        Aplicar
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Close Register Modal */}
-      {showCloseRegister && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Fechar Caixa</h3>
-              <button
-                onClick={() => setShowCloseRegister(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Valor de Fechamento
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={closingAmount}
-                  onChange={(e) => setClosingAmount(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="0,00"
-                />
-              </div>
-
-              <button
-                onClick={() => setShowBillCounting(true)}
-                className="w-full flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition-colors"
-              >
-                <DollarSign size={16} />
-                Contar Dinheiro
-              </button>
-
-              {currentRegister && closingAmount && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <div className="flex justify-between text-sm">
-                    <span>Saldo Esperado (Dinheiro):</span>
-                    <span>{formatPrice(summary.expected_balance)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Valor Informado:</span>
-                    <span>{formatPrice(parseFloat(closingAmount))}</span>
-                  </div>
-                  <div className="flex justify-between text-sm font-semibold border-t pt-2 mt-2">
-                    <span>Diferença:</span>
-                    <span className={parseFloat(closingAmount) - summary.expected_balance >= 0 ? 'text-green-600' : 'text-red-600'}>
-                      {formatPrice(parseFloat(closingAmount) - summary.expected_balance)}
-                      {parseFloat(closingAmount) - (summary.expected_balance || 0) > 0 ? ' (sobra)' : parseFloat(closingAmount) - (summary.expected_balance || 0) < 0 ? ' (falta)' : ''}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowCloseRegister(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleCloseRegister}
-                  disabled={!closingAmount}
-                  className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg transition-colors"
-                >
-                  Fechar Caixa
                 </button>
               </div>
             </div>

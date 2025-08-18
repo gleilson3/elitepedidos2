@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Gift, Phone, User, Search } from 'lucide-react';
 import { useCashback } from '../../hooks/useCashback';
 import { Customer, CustomerBalance } from '../../types/cashback';
+import { supabase } from '../../lib/supabase';
 import CashbackDisplay from '../Cashback/CashbackDisplay';
 import CashbackHistory from '../Cashback/CashbackHistory';
 
@@ -13,8 +14,52 @@ const CustomerCashbackPage: React.FC = () => {
   const [customerBalance, setCustomerBalance] = useState<CustomerBalance | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [customerSuggestions, setCustomerSuggestions] = useState<Customer[]>([]);
 
-  const { getCustomerByPhone, getCustomerBalance } = useCashback();
+  const { getCustomerByPhone, getCustomerBalance, searchCustomersByName } = useCashback();
+
+  // Buscar sugestões de clientes por telefone
+  const searchCustomerSuggestions = useCallback(async (phoneInput: string) => {
+    const phoneNumbers = phoneInput.replace(/\D/g, '');
+    if (phoneNumbers.length < 4) {
+      setCustomerSuggestions([]);
+      return;
+    }
+
+    try {
+      // Buscar por telefone parcial
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*')
+        .ilike('phone', `%${phoneNumbers}%`)
+        .limit(5)
+        .order('name');
+
+      if (error) throw error;
+      setCustomerSuggestions(data || []);
+    } catch (err) {
+      console.error('Erro ao buscar sugestões:', err);
+      setCustomerSuggestions([]);
+    }
+  }, []);
+
+  // Debounce para busca de sugestões
+  useEffect(() => {
+    if (phone && !customer) {
+      const timeoutId = setTimeout(() => {
+        searchCustomerSuggestions(phone);
+      }, 300);
+      return () => clearTimeout(timeoutId);
+    } else {
+      setCustomerSuggestions([]);
+    }
+  }, [phone, customer, searchCustomerSuggestions]);
+
+  const selectCustomerSuggestion = (selectedCustomer: Customer) => {
+    setPhone(formatPhone(selectedCustomer.phone));
+    setCustomerSuggestions([]);
+    // O handleSearch será chamado automaticamente pelo useEffect
+  };
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -218,7 +263,7 @@ const CustomerCashbackPage: React.FC = () => {
               <span className="font-bold text-purple-600">📅</span>
               <p><strong>Válido até o fim do mês:</strong> Use seu cashback até o último dia do mês em que foi ganho</p>
             </div>
-            <div className="flex items-start gap-2">
+            <div className="relative">
               <span className="font-bold text-purple-600">💰</span>
               <p><strong>Use como desconto:</strong> Aplique seu cashback na finalização do pedido</p>
             </div>
@@ -228,9 +273,32 @@ const CustomerCashbackPage: React.FC = () => {
             </div>
           </div>
 
+              
+              {/* Sugestões de clientes */}
+              {customerSuggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-0 bg-white border border-gray-300 rounded-lg shadow-lg z-10 mt-1">
+                  {customerSuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion.id}
+                      type="button"
+                      onClick={() => selectCustomerSuggestion(suggestion)}
+                      className="w-full text-left p-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 first:rounded-t-lg last:rounded-b-lg"
+                    >
+                      <div className="font-medium text-gray-800">{suggestion.name}</div>
+                      <div className="text-sm text-gray-500">{formatPhone(suggestion.phone)}</div>
+                      <div className="text-xs text-gray-400">
+                        Cliente desde {new Date(suggestion.created_at).toLocaleDateString('pt-BR')}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
           <div className="mt-4 p-3 bg-white/50 rounded-lg">
             <p className="text-xs text-purple-600">
-              <strong>Exemplo:</strong> Em um pedido de R$ 50,00, você ganha R$ 2,50 de cashback para usar até o final do mês!
+              {customerSuggestions.length > 0 ? 
+                'Selecione seu telefone da lista ou continue digitando' : 
+                'Digite o telefone usado nos seus pedidos'
+              }
             </p>
           </div>
         </div>

@@ -1,3 +1,72 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Global print styles */
+@media print {
+  @page {
+    size: A4;
+    margin: 5mm;
+  }
+  
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    box-sizing: border-box;
+  }
+  
+  html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    color: black;
+    background: white;
+    overflow: visible;
+  }
+  
+  .print-hidden, .print\\:hidden {
+    display: none;
+  }
+  
+  .print-container {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+    background: white;
+    color: black;
+  }
+  
+  /* Hide all page elements except print content */
+  body > div:not(.print-container) {
+    display: none;
+  }
+  
+  /* Show only print content */
+  .thermal-receipt {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    color: black;
+    background: white;
+  }
+  
+  /* Remove all shadows, borders, and effects */
+  .rounded-lg, .rounded-xl, .shadow-sm, .shadow-md, .shadow-lg {
+    border-radius: 0;
+    box-shadow: none;
+  }
+  
+  /* Ensure images print correctly */
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+}

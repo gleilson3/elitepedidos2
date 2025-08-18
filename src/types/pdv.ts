@@ -1,3 +1,4 @@
+// PDV Types
 export interface PDVProduct {
   id: string;
   code: string;
@@ -12,37 +13,24 @@ export interface PDVProduct {
   is_active: boolean;
   barcode?: string;
   description?: string;
-  created_at: string;
-  updated_at: string;
+  display_order?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
-export interface PDVOperator {
+export interface PDVCartItem {
   id: string;
-  name: string;
-  code: string;
-  password_hash: string;
-  is_active: boolean;
-  permissions: {
-    can_discount: boolean;
-    can_cancel: boolean;
-    can_manage_products: boolean;
-    can_view_sales?: boolean;
-    can_view_cash_register?: boolean;
-    can_view_products?: boolean;
-    can_view_orders?: boolean;
-    can_view_reports?: boolean;
-    can_view_sales_report?: boolean;
-    can_view_cash_report?: boolean;
-    can_view_operators?: boolean;
-  };
-  created_at: string;
-  updated_at: string;
+  product: PDVProduct;
+  quantity: number;
+  weight?: number;
+  subtotal: number;
+  discount?: number;
 }
 
 export interface PDVSale {
   id: string;
   sale_number: number;
-  operator_id: string;
+  operator_id?: string;
   customer_name?: string;
   customer_phone?: string;
   subtotal: number;
@@ -59,14 +47,14 @@ export interface PDVSale {
   cancel_reason?: string;
   created_at: string;
   updated_at: string;
-  channel?: string;
-  items?: PDVSaleItem[];
+  channel: string;
+  cash_register_id?: string;
 }
 
 export interface PDVSaleItem {
   id: string;
   sale_id: string;
-  product_id: string;
+  product_id?: string;
   product_code: string;
   product_name: string;
   quantity: number;
@@ -78,51 +66,43 @@ export interface PDVSaleItem {
   created_at: string;
 }
 
-export interface PDVCartItem {
-  product: PDVProduct;
-  quantity: number;
-  weight?: number;
-  discount: number;
-  subtotal: number;
-  notes?: string;
+export interface PDVOperator {
+  id: string;
+  name: string;
+  code: string;
+  password_hash: string;
+  is_active: boolean;
+  permissions: {
+    can_cancel: boolean;
+    can_discount: boolean;
+    can_use_scale: boolean;
+    can_view_sales: boolean;
+    can_view_orders: boolean;
+    can_view_reports: boolean;
+    can_view_products: boolean;
+    can_view_operators: boolean;
+    can_manage_products: boolean;
+    can_manage_settings: boolean;
+    can_view_attendance: boolean;
+    can_view_cash_report: boolean;
+    can_view_sales_report: boolean;
+    can_view_cash_register: boolean;
+    can_view_expected_balance: boolean;
+  };
+  created_at: string;
+  updated_at: string;
+  last_login?: string;
 }
 
-export interface WeightReading {
-  weight: number;
-  stable: boolean;
-  unit: 'kg' | 'g'; 
-  timestamp: Date;
-}
-
-export interface ScaleConnection {
-  isConnected: boolean;
-  port?: string;
-  protocol?: string;
-  model?: string;
-  lastReading?: WeightReading;
-  error?: string;
-  reconnectAttempts?: number;
-}
-
-interface PDVSettings {
-  store_name: string;
-  store_address: string;
-  store_phone: string;
-  tax_rate: number;
-  receipt_footer: string;
-  scale_port: string;
-  scale_model: string;
-  printer_enabled: boolean;
-  scale_enabled: boolean;
-  scale_baud_rate: number;
-  scale_data_bits: number;
-  scale_stop_bits: number;
-  scale_parity: string;
-  scale_port: string;
-  scale_auto_reconnect: boolean;
-  scale_stable_timeout: number;
-  printer_name: string;
-  auto_print_receipt: boolean;
+export interface PDVCashRegister {
+  id: string;
+  opening_amount: number;
+  closing_amount?: number;
+  difference?: number;
+  opened_at: string;
+  closed_at?: string;
+  operator_id?: string;
+  store_id?: string;
 }
 
 export interface PDVCashRegisterEntry {
@@ -135,31 +115,111 @@ export interface PDVCashRegisterEntry {
   created_at: string;
 }
 
-export interface PDVCashRegister {
-  id: string;
-  opening_amount: number;
-  closing_amount: number | null;
-  difference: number | null;
-  opened_at: string;
-  closed_at: string | null;
-  operator_id: string | null;
-  total_income?: number;
-  total_expense?: number;
-  expected_balance?: number;
-}
-
 export interface PDVCashRegisterSummary {
   opening_amount: number;
   sales_total: number;
-  total_income: number; 
-  other_income_total?: number;
+  delivery_total: number;
+  other_income_total: number;
   total_expense: number;
   expected_balance: number;
-  actual_balance: number;
-  difference: number;
-  sales_count: number;
-  delivery_total?: number;
-  delivery_count?: number; 
-  total_all_sales?: number;
-  sales?: Record<string, any>;
+  entries: PDVCashRegisterEntry[];
+}
+
+// Store2 Types
+export interface Store2User {
+  id: string;
+  username: string;
+  password_hash: string;
+  name: string;
+  role: string;
+  is_active: boolean;
+  permissions: {
+    can_view_cash: boolean;
+    can_view_sales: boolean;
+    can_view_reports: boolean;
+    can_view_products: boolean;
+    can_manage_settings: boolean;
+    can_view_expected_balance: boolean;
+  };
+  created_at: string;
+  updated_at: string;
+  last_login?: string;
+}
+
+export interface Store2Product {
+  id: string;
+  code: string;
+  name: string;
+  category: string;
+  is_weighable: boolean;
+  unit_price?: number;
+  price_per_gram?: number;
+  image_url?: string;
+  stock_quantity: number;
+  min_stock: number;
+  is_active: boolean;
+  barcode?: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Store2Sale {
+  id: string;
+  sale_number: number;
+  operator_id?: string;
+  customer_name?: string;
+  customer_phone?: string;
+  subtotal: number;
+  discount_amount: number;
+  discount_percentage: number;
+  total_amount: number;
+  payment_type: string;
+  payment_details?: any;
+  change_amount: number;
+  notes?: string;
+  is_cancelled: boolean;
+  cancelled_at?: string;
+  cancelled_by?: string;
+  cancel_reason?: string;
+  created_at: string;
+  updated_at: string;
+  channel?: string;
+  cash_register_id?: string;
+}
+
+export interface Store2SaleItem {
+  id: string;
+  sale_id: string;
+  product_id?: string;
+  product_code: string;
+  product_name: string;
+  quantity: number;
+  weight_kg?: number;
+  unit_price?: number;
+  price_per_gram?: number;
+  discount_amount: number;
+  subtotal: number;
+  created_at: string;
+}
+
+export interface Store2CashRegister {
+  id: string;
+  opening_amount: number;
+  closing_amount?: number;
+  difference?: number;
+  opened_at: string;
+  closed_at?: string;
+  operator_id?: string;
+  store_id?: string;
+}
+
+export interface Store2CashEntry {
+  id: string;
+  register_id: string;
+  type: 'income' | 'expense';
+  amount: number;
+  description: string;
+  payment_method: string;
+  created_at: string;
 }

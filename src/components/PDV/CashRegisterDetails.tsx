@@ -125,20 +125,21 @@ const CashRegisterDetails: React.FC<CashRegisterDetailsProps> = ({ register, sum
               <RefreshCw size={18} />
             </button>
           )}
-          <div className="text-center py-12">
-              <DollarSign size={48} className="mx-auto text-gray-300 mb-4" />
-              <p className="text-gray-500">
-                {register?.closed_at ? 
-                  'Histórico de movimentações não disponível para este caixa' : 
-                  'Nenhuma movimentação registrada ainda'
-                }
-              </p>
-              {!register?.closed_at && (
-                <p className="text-sm text-gray-400 mt-2">
-                  As movimentações aparecerão aqui quando forem registradas
-                </p>
-              )}
-            </div>
+        </div>
+        
+        <div className="text-center py-12">
+          <DollarSign size={48} className="mx-auto text-gray-300 mb-4" />
+          <p className="text-gray-500">
+            {register?.closed_at ? 
+              'Histórico de movimentações não disponível para este caixa' : 
+              'Nenhuma movimentação registrada ainda'
+            }
+          </p>
+          {!register?.closed_at && (
+            <p className="text-sm text-gray-400 mt-2">
+              As movimentações aparecerão aqui quando forem registradas
+            </p>
+          )}
         </div>
         
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
